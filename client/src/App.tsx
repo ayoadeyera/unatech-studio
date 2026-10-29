@@ -10,6 +10,12 @@ interface Project {
   script: string;
   preset: Preset;
   createdAt: string;
+  narration?: {
+    filename: string;
+    originalName: string;
+    url: string;
+    size: number;
+  };
 }
 
 const STORAGE_KEY = "unatech-projects";
