@@ -419,6 +419,51 @@ function App() {
                       </p>
                     </div>
 
+                    {audioDuration !== null && audioDuration > 0 && (
+                      <section className="timeline-section">
+                        <h3>Smart Timeline</h3>
+
+                        <div className="timeline-labels">
+                          <span>00:00</span>
+                          <span>{formatDuration(audioDuration / 2)}</span>
+                          <span>{formatDuration(audioDuration)}</span>
+                        </div>
+
+                        <div
+                          className="timeline-track"
+                          role="progressbar"
+                          aria-label="Narration playback progress"
+                          aria-valuemin={0}
+                          aria-valuemax={audioDuration}
+                          aria-valuenow={Math.min(currentTime, audioDuration)}
+                        >
+                          <div
+                            className="timeline-progress"
+                            style={{
+                              width: `${Math.min(
+                                100,
+                                Math.max(0, (currentTime / audioDuration) * 100)
+                              )}%`,
+                            }}
+                          />
+
+                          <div
+                            className="timeline-playhead"
+                            style={{
+                              left: `${Math.min(
+                                100,
+                                Math.max(0, (currentTime / audioDuration) * 100)
+                              )}%`,
+                            }}
+                          />
+                        </div>
+
+                        <p className="timeline-position">
+                          Current Position: {formatDuration(currentTime)}
+                        </p>
+                      </section>
+                    )}
+
                   </div>
                 )}
             </div>

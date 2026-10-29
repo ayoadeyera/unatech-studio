@@ -271,3 +271,55 @@ a {
 .narration-details p {
   margin: 8px 0;
 }
+
+.timeline-section {
+  margin-top: 28px;
+  padding: 22px;
+  background: #0b1020;
+  border: 1px solid #34405a;
+  border-radius: 12px;
+}
+
+.timeline-section h3 {
+  margin: 0 0 20px;
+  color: #c4b5fd;
+}
+
+.timeline-labels {
+  display: flex;
+  justify-content: space-between;
+  color: #94a3b8;
+  font-size: 13px;
+  margin-bottom: 12px;
+}
+
+.timeline-track {
+  position: relative;
+  height: 56px;
+  background: #27334d;
+  border: 1px solid #465575;
+  border-radius: 8px;
+}
+
+.timeline-progress {
+  height: 100%;
+  background: linear-gradient(90deg, #5b21b6, #8b5cf6);
+  border-radius: 7px;
+}
+
+.timeline-playhead {
+  position: absolute;
+  top: -7px;
+  bottom: -7px;
+  width: 3px;
+  background: #fbbf24;
+  transform: translateX(-50%);
+  pointer-events: none;
+  box-shadow: 0 0 8px rgba(251, 191, 36, 0.6);
+}
+
+.timeline-position {
+  margin: 16px 0 0;
+  color: #cbd5e1;
+  font-size: 14px;
+}
