@@ -94,6 +94,9 @@ function App() {
 
   function openProject(projectId: string) {
     setSelectedProjectId(projectId);
+    setAudioDuration(null);
+    setAudioFile(null);
+    setUploadMessage("");
     setMessage("");
     setView("editor");
   }
