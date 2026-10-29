@@ -49,6 +49,8 @@ function App() {
 
   const [audioDuration, setAudioDuration] = useState<number | null>(null);
 
+  const [currentTime, setCurrentTime] = useState(0);
+
   useEffect(() => {
     fetch(`${import.meta.env.VITE_API_URL}/api/health`)
       .then((response) => {
@@ -95,6 +97,7 @@ function App() {
   function openProject(projectId: string) {
     setSelectedProjectId(projectId);
     setAudioDuration(null);
+    setCurrentTime(0);
     setAudioFile(null);
     setUploadMessage("");
     setMessage("");
@@ -166,6 +169,7 @@ function App() {
       localStorage.setItem(STORAGE_KEY, JSON.stringify(updatedProjects));
 
       setAudioFile(null);
+      setCurrentTime(0);
       setUploadMessage("Narration uploaded successfully!");
     } catch (error) {
       setUploadMessage(
@@ -368,6 +372,12 @@ function App() {
                     <audio
                       controls
                       preload="metadata"
+                      onTimeUpdate={(event) => {
+                        setCurrentTime(event.currentTarget.currentTime);
+                      }}
+                      onSeeked={(event) => {
+                        setCurrentTime(event.currentTarget.currentTime);
+                      }}
                       onLoadedMetadata={(event) => {
                         const duration = event.currentTarget.duration;
                         setAudioDuration(
@@ -385,6 +395,12 @@ function App() {
                     </audio>
 
                     <div className="narration-details">
+
+                      <p>
+                        <strong>Playback Position:</strong>{" "}
+                        {formatDuration(currentTime)}
+                      </p>
+
                       <p>
                         <strong>Duration:</strong>{" "}
                         {audioDuration !== null
