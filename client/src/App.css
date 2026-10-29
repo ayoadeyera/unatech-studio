@@ -195,3 +195,67 @@ a {
     grid-template-columns: 1fr;
   }
 }
+
+
+
+.sidebar nav button {
+  background: transparent;
+  border: none;
+  color: #aeb8ce;
+  padding: 13px 15px;
+  border-radius: 9px;
+  text-align: left;
+  cursor: pointer;
+}
+
+.sidebar nav button:hover {
+  background: #262047;
+  color: #c4b5fd;
+}
+
+.project-form {
+  display: flex;
+  flex-direction: column;
+  gap: 15px;
+  margin-top: 25px;
+}
+
+.project-form label {
+  font-weight: 600;
+  color: #c4b5fd;
+}
+
+.project-form input,
+.project-form textarea,
+.project-form select {
+  width: 100%;
+  padding: 14px;
+  background: #0b1020;
+  border: 1px solid #34405a;
+  border-radius: 9px;
+  color: #f5f7ff;
+  font: inherit;
+}
+
+.project-form textarea {
+  resize: vertical;
+  line-height: 1.6;
+}
+
+.project-form input:focus,
+.project-form textarea:focus,
+.project-form select:focus {
+  outline: 2px solid #7c3aed;
+  outline-offset: 2px;
+}
+
+.project-form .primary-button {
+  align-self: flex-start;
+  cursor: pointer;
+}
+
+.sidebar nav button:focus-visible,
+.primary-button:focus-visible {
+  outline: 2px solid #a78bfa;
+  outline-offset: 3px;
+}
