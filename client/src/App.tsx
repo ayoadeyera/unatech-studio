@@ -47,6 +47,8 @@ function App() {
   const [uploading, setUploading] = useState(false);
   const [uploadMessage, setUploadMessage] = useState("");
 
+  const [audioDuration, setAudioDuration] = useState<number | null>(null);
+
   useEffect(() => {
     fetch(`${import.meta.env.VITE_API_URL}/api/health`)
       .then((response) => {
@@ -96,6 +98,25 @@ function App() {
     setView("editor");
   }
 
+  function formatDuration(seconds: number): string {
+    if (!Number.isFinite(seconds) || seconds < 0) {
+      return "Unknown";
+    }
+
+    const totalSeconds = Math.floor(seconds);
+    const hours = Math.floor(totalSeconds / 3600);
+    const minutes = Math.floor((totalSeconds % 3600) / 60);
+    const remainingSeconds = totalSeconds % 60;
+
+    const paddedMinutes = String(minutes).padStart(2, "0");
+    const paddedSeconds = String(remainingSeconds).padStart(2, "0");
+
+    if (hours > 0) {
+      return `${hours}:${paddedMinutes}:${paddedSeconds}`;
+    }
+
+    return `${paddedMinutes}:${paddedSeconds}`;
+  }
   async function uploadNarration() {
     if (!selectedProjectId || !audioFile || uploading) return;
 
@@ -344,6 +365,13 @@ function App() {
                     <audio
                       controls
                       preload="metadata"
+                      onLoadedMetadata={(event) => {
+                        const duration = event.currentTarget.duration;
+                        setAudioDuration(
+                          Number.isFinite(duration) ? duration : null
+                        );
+                      }}
+                      onError={() => setAudioDuration(null)}
                       style={{ width: "100%", marginTop: "12px" }}
                       src={`${import.meta.env.VITE_API_URL}${projects.find(
                         (project) => project.id === selectedProjectId
@@ -352,6 +380,26 @@ function App() {
                     >
                       Your browser does not support audio playback.
                     </audio>
+
+                    <div className="narration-details">
+                      <p>
+                        <strong>Duration:</strong>{" "}
+                        {audioDuration !== null
+                          ? formatDuration(audioDuration)
+                          : "Loading or unavailable"}
+                      </p>
+
+                      <p>
+                        <strong>File Size:</strong>{" "}
+                        {(
+                          (projects.find(
+                            (project) => project.id === selectedProjectId
+                          )?.narration?.size ?? 0) /
+                          (1024 * 1024)
+                        ).toFixed(2)} MB
+                      </p>
+                    </div>
+
                   </div>
                 )}
             </div>

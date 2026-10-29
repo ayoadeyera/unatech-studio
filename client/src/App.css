@@ -259,3 +259,15 @@ a {
   outline: 2px solid #a78bfa;
   outline-offset: 3px;
 }
+
+.narration-details {
+  margin-top: 16px;
+  padding: 16px;
+  border: 1px solid #34405a;
+  border-radius: 10px;
+  background: #0b1020;
+}
+
+.narration-details p {
+  margin: 8px 0;
+}
