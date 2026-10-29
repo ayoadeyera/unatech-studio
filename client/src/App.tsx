@@ -43,6 +43,10 @@ function App() {
   const [selectedProjectId, setSelectedProjectId] =
     useState<string | null>(null);
 
+  const [audioFile, setAudioFile] = useState<File | null>(null);
+  const [uploading, setUploading] = useState(false);
+  const [uploadMessage, setUploadMessage] = useState("");
+
   useEffect(() => {
     fetch(`${import.meta.env.VITE_API_URL}/api/health`)
       .then((response) => {
@@ -90,6 +94,62 @@ function App() {
     setSelectedProjectId(projectId);
     setMessage("");
     setView("editor");
+  }
+
+  async function uploadNarration() {
+    if (!selectedProjectId || !audioFile || uploading) return;
+
+    const extension = audioFile.name.split(".").pop()?.toLowerCase();
+
+    if (extension !== "mp3" && extension !== "wav") {
+      setUploadMessage("Please select an MP3 or WAV file.");
+      return;
+    }
+
+    if (audioFile.size > 100 * 1024 * 1024) {
+      setUploadMessage("Audio must be smaller than 100 MB.");
+      return;
+    }
+
+    setUploading(true);
+    setUploadMessage("Uploading narration...");
+
+    try {
+      const formData = new FormData();
+      formData.append("audio", audioFile);
+
+      const response = await fetch(
+        `${import.meta.env.VITE_API_URL}/api/projects/${selectedProjectId}/narration`,
+        {
+          method: "POST",
+          body: formData,
+        }
+      );
+
+      const data = await response.json();
+
+      if (!response.ok || !data.success) {
+        throw new Error(data.message || "Upload failed.");
+      }
+
+      const updatedProjects = projects.map((project) =>
+        project.id === selectedProjectId
+          ? { ...project, narration: data.narration }
+          : project
+      );
+
+      setProjects(updatedProjects);
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(updatedProjects));
+
+      setAudioFile(null);
+      setUploadMessage("Narration uploaded successfully!");
+    } catch (error) {
+      setUploadMessage(
+        error instanceof Error ? error.message : "Upload failed."
+      );
+    } finally {
+      setUploading(false);
+    }
   }
 
   return (
@@ -240,7 +300,61 @@ function App() {
             <p>
               {projects.find((project) => project.id === selectedProjectId)?.title}
             </p>
-            <p>Audio Studio is coming next.</p>
+            <div className="project-form">
+              <h3>Audio Studio</h3>
+              <p>Import your ElevenLabs narration (MP3 or WAV, maximum 100 MB).</p>
+
+              <label htmlFor="narration-file">Select Narration</label>
+
+              <input
+                id="narration-file"
+                type="file"
+                accept=".mp3,.wav,audio/mpeg,audio/wav"
+                onChange={(event) => {
+                  setAudioFile(event.target.files?.[0] || null);
+                  setUploadMessage("");
+                }}
+              />
+
+              <button
+                className="primary-button"
+                type="button"
+                disabled={!audioFile || uploading}
+                onClick={uploadNarration}
+              >
+                {uploading ? "Uploading..." : "Upload Narration"}
+              </button>
+
+              {uploadMessage && <p role="status">{uploadMessage}</p>}
+
+              {projects
+                .find((project) => project.id === selectedProjectId)
+                ?.narration && (
+                  <div>
+                    <h4>Uploaded Narration</h4>
+
+                    <p>
+                      {
+                        projects.find(
+                          (project) => project.id === selectedProjectId
+                        )?.narration?.originalName
+                      }
+                    </p>
+
+                    <audio
+                      controls
+                      preload="metadata"
+                      style={{ width: "100%", marginTop: "12px" }}
+                      src={`${import.meta.env.VITE_API_URL}${projects.find(
+                        (project) => project.id === selectedProjectId
+                      )?.narration?.url
+                        }`}
+                    >
+                      Your browser does not support audio playback.
+                    </audio>
+                  </div>
+                )}
+            </div>
 
             <button
               className="primary-button"
