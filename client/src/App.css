@@ -299,6 +299,7 @@ a {
   background: #27334d;
   border: 1px solid #465575;
   border-radius: 8px;
+  cursor: pointer;
 }
 
 .timeline-progress {
@@ -322,4 +323,13 @@ a {
   margin: 16px 0 0;
   color: #cbd5e1;
   font-size: 14px;
+}
+
+.timeline-track:focus-visible {
+  outline: 2px solid #a78bfa;
+  outline-offset: 4px;
+}
+
+.timeline-track:hover {
+  border-color: #a78bfa;
 }

@@ -1,5 +1,5 @@
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import "./App.css";
 
 type Preset = "Focused Teaching" | "Entertaining Presenter" | "High-Energy Explainer";
@@ -50,6 +50,7 @@ function App() {
   const [audioDuration, setAudioDuration] = useState<number | null>(null);
 
   const [currentTime, setCurrentTime] = useState(0);
+  const audioRef = useRef<HTMLAudioElement | null>(null);
 
   useEffect(() => {
     fetch(`${import.meta.env.VITE_API_URL}/api/health`)
@@ -102,6 +103,25 @@ function App() {
     setUploadMessage("");
     setMessage("");
     setView("editor");
+  }
+
+  function seekToPosition(clientX: number, track: HTMLDivElement) {
+    if (!audioRef.current || audioDuration === null || audioDuration <= 0) {
+      return;
+    }
+
+    const bounds = track.getBoundingClientRect();
+    if (bounds.width <= 0) return;
+
+    const percentage = Math.min(
+      1,
+      Math.max(0, (clientX - bounds.left) / bounds.width)
+    );
+
+    const newTime = percentage * audioDuration;
+
+    audioRef.current.currentTime = newTime;
+    setCurrentTime(newTime);
   }
 
   function formatDuration(seconds: number): string {
@@ -370,6 +390,7 @@ function App() {
                     </p>
 
                     <audio
+                      ref={audioRef}
                       controls
                       preload="metadata"
                       onTimeUpdate={(event) => {
@@ -430,6 +451,37 @@ function App() {
                         </div>
 
                         <div
+                          className="timeline-track"
+                          role="slider"
+                          tabIndex={0}
+                          aria-label="Narration playback position"
+                          aria-valuemin={0}
+                          aria-valuemax={Math.floor(audioDuration)}
+                          aria-valuenow={Math.min(
+                            Math.floor(currentTime),
+                            Math.floor(audioDuration)
+                          )}
+                          aria-valuetext={formatDuration(currentTime)}
+                          onClick={(event) => {
+                            seekToPosition(event.clientX, event.currentTarget);
+                          }}
+                          onKeyDown={(event) => {
+                            if (!audioRef.current) return;
+
+                            if (event.key === "ArrowRight" || event.key === "ArrowLeft") {
+                              event.preventDefault();
+
+                              const direction = event.key === "ArrowRight" ? 1 : -1;
+                              const newTime = Math.min(
+                                audioDuration,
+                                Math.max(0, audioRef.current.currentTime + direction * 5)
+                              );
+
+                              audioRef.current.currentTime = newTime;
+                              setCurrentTime(newTime);
+                            }
+                          }}
+                        
                           className="timeline-track"
                           role="progressbar"
                           aria-label="Narration playback progress"
