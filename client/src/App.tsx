@@ -37,6 +37,9 @@ function App() {
   const [preset, setPreset] = useState<Preset>("Focused Teaching");
   const [message, setMessage] = useState("");
 
+  const [selectedProjectId, setSelectedProjectId] =
+    useState<string | null>(null);
+
   useEffect(() => {
     fetch(`${import.meta.env.VITE_API_URL}/api/health`)
       .then((response) => {
