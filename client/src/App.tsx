@@ -31,7 +31,10 @@ function App() {
     }
   });
 
-  const [view, setView] = useState<"dashboard" | "create" | "projects">("dashboard");
+  const [view, setView] = useState<
+    "dashboard" | "create" | "projects" | "editor"
+  >("dashboard");
+
   const [title, setTitle] = useState("");
   const [script, setScript] = useState("");
   const [preset, setPreset] = useState<Preset>("Focused Teaching");
@@ -83,6 +86,12 @@ function App() {
     setView("projects");
   }
 
+  function openProject(projectId: string) {
+    setSelectedProjectId(projectId);
+    setMessage("");
+    setView("editor");
+  }
+
   return (
     <div className="app">
       <aside className="sidebar">
@@ -101,7 +110,9 @@ function App() {
               ? "Dashboard"
               : view === "create"
                 ? "Create New Project"
-                : "My Projects"}
+                : view === "projects"
+                  ? "My Projects"
+                  : "Project Editor"}
           </h1>
           <span className="version">Studio v0.2.0</span>
         </header>
@@ -210,10 +221,33 @@ function App() {
                     <p>Preset: {project.preset}</p>
                     <p>Created: {new Date(project.createdAt).toLocaleDateString()}</p>
                     <p>{project.script ? `${project.script.slice(0, 120)}...` : "No script yet"}</p>
+                    <button
+                      className="primary-button"
+                      onClick={() => openProject(project.id)}
+                    >
+                      Open Project
+                    </button>
                   </article>
                 ))}
               </div>
             )}
+          </section>
+        )}
+
+        {view === "editor" && (
+          <section className="status-card">
+            <h2>Project Workspace</h2>
+            <p>
+              {projects.find((project) => project.id === selectedProjectId)?.title}
+            </p>
+            <p>Audio Studio is coming next.</p>
+
+            <button
+              className="primary-button"
+              onClick={() => setView("projects")}
+            >
+              Back to Projects
+            </button>
           </section>
         )}
       </main>
