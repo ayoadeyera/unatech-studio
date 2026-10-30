@@ -101,6 +101,14 @@ function App() {
   );
 
   const teachingPauses = selectedProject?.teachingPauses ?? [];
+  const activeVisualScene =
+    [...visualScenes]
+      .sort((a, b) => b.startTime - a.startTime)
+      .find(
+        (scene) =>
+          currentTime >= scene.startTime &&
+          currentTime < scene.startTime + scene.duration
+      ) ?? null;
   const visualScenes = selectedProject?.visualScenes ?? [];
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const selectedPauseCardRef = useRef<HTMLLIElement | null>(null);
@@ -1035,6 +1043,34 @@ function App() {
                 )}
             </div>
             <section className="visual-scenes-section">
+              <div className="active-visual-scene">
+                <h3>Active Visual Scene</h3>
+
+                <p>
+                  Narration position: {formatDuration(currentTime)}
+                </p>
+
+                {activeVisualScene ? (
+                  <div className="active-scene-details">
+                    <strong>{activeVisualScene.title}</strong>
+
+                    <p>
+                      Scene starts at{" "}
+                      {formatDuration(activeVisualScene.startTime)}
+                    </p>
+
+                    <p>
+                      Duration: {activeVisualScene.duration} seconds
+                    </p>
+
+                    <p>
+                      Media type: {activeVisualScene.mediaType}
+                    </p>
+                  </div>
+                ) : (
+                  <p>No visual scene is active at this position.</p>
+                )}
+              </div>
               <div className="visual-scenes-header">
                 <div>
                   <h3>Visual Scenes ({visualScenes.length})</h3>

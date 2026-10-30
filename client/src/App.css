@@ -633,3 +633,31 @@ a {
   margin: 0;
   overflow-wrap: anywhere;
 }
+
+.active-visual-scene {
+  margin-bottom: 24px;
+  padding: 20px;
+  background: #17152b;
+  border: 1px solid #7c3aed;
+  border-radius: 12px;
+}
+
+.active-visual-scene h3 {
+  margin: 0 0 12px;
+  color: #c4b5fd;
+}
+
+.active-visual-scene p {
+  margin: 6px 0;
+  color: #cbd5e1;
+}
+
+.active-scene-details {
+  padding: 14px;
+  background: #0b1020;
+  border-radius: 8px;
+}
+
+.active-scene-details strong {
+  color: #a78bfa;
+}
