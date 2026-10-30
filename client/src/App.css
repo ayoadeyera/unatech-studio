@@ -575,3 +575,28 @@ a {
   font-style: italic;
 }
 
+.visual-scene-upload {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  margin-top: 12px;
+  padding-top: 16px;
+  border-top: 1px solid #34405a;
+}
+
+.visual-scene-upload input[type="file"] {
+  width: 100%;
+  max-width: 100%;
+  font-size: 13px;
+}
+
+.visual-scene-upload button:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+.visual-scene-upload [role="status"] {
+  color: #c4b5fd;
+  font-size: 13px;
+  overflow-wrap: anywhere;
+}

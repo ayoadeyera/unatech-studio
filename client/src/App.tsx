@@ -1201,58 +1201,6 @@ function App() {
                             Uploaded: {scene.originalName}
                           </p>
                         )}
-                      </div><div className="visual-scene-upload">
-                        <label htmlFor={`visual-upload-${scene.id}`}>
-                          Upload Image or Video
-                        </label>
-
-                        <input
-                          id={`visual-upload-${scene.id}`}
-                          type="file"
-                          accept=".jpg,.jpeg,.png,.webp,.mp4,image/jpeg,image/png,image/webp,video/mp4"
-                          onChange={(event) => {
-                            const file = event.target.files?.[0];
-
-                            if (file) {
-                              setVisualFiles((previous) => ({
-                                ...previous,
-                                [scene.id]: file,
-                              }));
-                            }
-                          }}
-                        />
-
-                        {visualFiles[scene.id] && (
-                          <p>
-                            Selected: {visualFiles[scene.id].name}
-                          </p>
-                        )}
-
-                        <button
-                          type="button"
-                          className="primary-button"
-                          disabled={
-                            !visualFiles[scene.id] ||
-                            uploadingSceneId !== null
-                          }
-                          onClick={() => uploadVisualScene(scene)}
-                        >
-                          {uploadingSceneId === scene.id
-                            ? "Uploading..."
-                            : "Upload Media"}
-                        </button>
-
-                        {visualUploadMessages[scene.id] && (
-                          <p role="status">
-                            {visualUploadMessages[scene.id]}
-                          </p>
-                        )}
-
-                        {scene.mediaUrl && (
-                          <p className="visual-scene-media-status">
-                            Uploaded: {scene.originalName}
-                          </p>
-                        )}
                       </div>
                     </li>
                   ))}
