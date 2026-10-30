@@ -675,7 +675,7 @@ function App() {
                               ))}
                             </ul>
                           )}
-                          )}
+                          
                         </div>
 
                       </section>
