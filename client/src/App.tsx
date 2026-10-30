@@ -733,16 +733,16 @@ function App() {
                                     }`}
                                 >
                                   <div className="pause-item-header">
-                                    <strong>
-                                      <button
-                                        type="button"
-                                        className="pause-jump-button"
-                                        onClick={() => jumpToTeachingPause(pause)}
-                                        aria-label={`Jump to ${pause.label} at ${formatDuration(pause.time)}`}
-                                      >
-                                        Jump to Time
-                                      </button>
-                                      {formatDuration(pause.time)}</strong>
+                                    <strong>{formatDuration(pause.time)}</strong>
+
+                                    <button
+                                      type="button"
+                                      className="pause-jump-button"
+                                      onClick={() => jumpToTeachingPause(pause)}
+                                      aria-label={`Jump to ${pause.label} at ${formatDuration(pause.time)}`}
+                                    >
+                                      Jump to Time
+                                    </button>
 
                                     <button
                                       type="button"
