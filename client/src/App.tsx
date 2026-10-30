@@ -100,7 +100,11 @@ function App() {
     (project) => project.id === selectedProjectId
   );
 
+
+
   const teachingPauses = selectedProject?.teachingPauses ?? [];
+  const visualScenes = selectedProject?.visualScenes ?? [];
+
   const activeVisualScene =
     [...visualScenes]
       .sort((a, b) => b.startTime - a.startTime)
@@ -109,7 +113,7 @@ function App() {
           currentTime >= scene.startTime &&
           currentTime < scene.startTime + scene.duration
       ) ?? null;
-  const visualScenes = selectedProject?.visualScenes ?? [];
+  
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const selectedPauseCardRef = useRef<HTMLLIElement | null>(null);
   useEffect(() => {
