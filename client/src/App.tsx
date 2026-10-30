@@ -481,13 +481,8 @@ function App() {
                               setCurrentTime(newTime);
                             }
                           }}
-                        
-                          className="timeline-track"
-                          role="progressbar"
-                          aria-label="Narration playback progress"
-                          aria-valuemin={0}
-                          aria-valuemax={audioDuration}
-                          aria-valuenow={Math.min(currentTime, audioDuration)}
+
+
                         >
                           <div
                             className="timeline-progress"
