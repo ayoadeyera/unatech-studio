@@ -81,7 +81,15 @@ function App() {
 
   const teachingPauses = selectedProject?.teachingPauses ?? [];
   const audioRef = useRef<HTMLAudioElement | null>(null);
-
+  const selectedPauseCardRef = useRef<HTMLLIElement | null>(null);
+  useEffect(() => {
+    if (selectedPauseId) {
+      selectedPauseCardRef.current?.scrollIntoView({
+        behavior: "smooth",
+        block: "nearest",
+      });
+    }
+  }, [selectedPauseId]);
   useEffect(() => {
     localStorage.setItem(VIEW_STORAGE_KEY, view);
   }, [view]);
@@ -148,6 +156,20 @@ function App() {
     setView("editor");
   }
 
+  function jumpToTeachingPause(pause: TeachingPause) {
+    if (!audioRef.current || audioDuration === null) {
+      return;
+    }
+
+    const targetTime = Math.min(
+      Math.max(0, pause.time),
+      audioDuration
+    );
+
+    audioRef.current.currentTime = targetTime;
+    setCurrentTime(targetTime);
+    setSelectedPauseId(pause.id);
+  }
   function seekToPosition(clientX: number, track: HTMLDivElement) {
     if (!audioRef.current || audioDuration === null || audioDuration <= 0) {
       return;
@@ -706,11 +728,21 @@ function App() {
                               {teachingPauses.map((pause) => (
                                 <li
                                   key={pause.id}
+                                  ref={selectedPauseId === pause.id ? selectedPauseCardRef : null}
                                   className={`pause-item ${selectedPauseId === pause.id ? "pause-item-selected" : ""
                                     }`}
                                 >
                                   <div className="pause-item-header">
-                                    <strong>{formatDuration(pause.time)}</strong>
+                                    <strong>
+                                      <button
+                                        type="button"
+                                        className="pause-jump-button"
+                                        onClick={() => jumpToTeachingPause(pause)}
+                                        aria-label={`Jump to ${pause.label} at ${formatDuration(pause.time)}`}
+                                      >
+                                        Jump to Time
+                                      </button>
+                                      {formatDuration(pause.time)}</strong>
 
                                     <button
                                       type="button"

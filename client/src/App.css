@@ -460,3 +460,27 @@ a {
   color: #facc15 !important;
   font-weight: 600;
 }
+
+.pause-jump-button {
+  padding: 8px 12px;
+  background: #312e81;
+  color: #ddd6fe;
+  border: 1px solid #6366f1;
+  border-radius: 7px;
+  cursor: pointer;
+  font-size: 13px;
+}
+
+.pause-jump-button:hover {
+  background: #4338ca;
+  color: #ffffff;
+}
+
+.pause-jump-button:focus-visible {
+  outline: 2px solid #a78bfa;
+  outline-offset: 2px;
+}
+
+.pause-item-header {
+  flex-wrap: wrap;
+}
