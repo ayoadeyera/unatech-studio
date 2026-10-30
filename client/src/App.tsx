@@ -11,6 +11,18 @@ interface TeachingPause {
   label: string;
 }
 
+type VisualMediaType = "image" | "video";
+
+interface VisualScene {
+  id: string;
+  title: string;
+  startTime: number;
+  duration: number;
+  mediaType: VisualMediaType;
+  mediaUrl: string | null;
+  originalName: string | null;
+}
+
 interface Project {
   id: string;
   title: string;
@@ -18,6 +30,7 @@ interface Project {
   preset: Preset;
   createdAt: string;
   teachingPauses?: TeachingPause[];
+  visualScenes?: VisualScene[];
   narration?: {
     filename: string;
     originalName: string;
@@ -25,6 +38,8 @@ interface Project {
     size: number;
   };
 }
+
+
 
 const STORAGE_KEY = "unatech-projects";
 const VIEW_STORAGE_KEY = "unatech-current-view";
@@ -80,6 +95,7 @@ function App() {
   );
 
   const teachingPauses = selectedProject?.teachingPauses ?? [];
+  const visualScenes = selectedProject?.visualScenes ?? [];
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const selectedPauseCardRef = useRef<HTMLLIElement | null>(null);
   useEffect(() => {
@@ -132,6 +148,8 @@ function App() {
       script: script.trim(),
       preset,
       createdAt: new Date().toISOString(),
+      teachingPauses: [],
+      visualScenes: [],
     };
 
     const updated = [project, ...projects];
