@@ -535,6 +535,20 @@ function App() {
                             }}
                           />
 
+                          {teachingPauses.map((pause) => (
+                            <div
+                              key={pause.id}
+                              className="teaching-pause-marker"
+                              style={{
+                                left: `${Math.min(
+                                  100,
+                                  Math.max(0, (pause.time / audioDuration) * 100)
+                                )}%`,
+                              }}
+                              title={`${pause.label} at ${formatDuration(pause.time)} (${pause.duration}s)`}
+                            />
+                          ))}
+
                           <div
                             className="timeline-playhead"
                             style={{
