@@ -113,9 +113,40 @@ function App() {
           currentTime >= scene.startTime &&
           currentTime < scene.startTime + scene.duration
       ) ?? null;
-  
+
   const audioRef = useRef<HTMLAudioElement | null>(null);
+  const visualVideoRef = useRef<HTMLVideoElement | null>(null);
   const selectedPauseCardRef = useRef<HTMLLIElement | null>(null);
+
+  useEffect(() => {
+    const video = visualVideoRef.current;
+    const audio = audioRef.current;
+
+    if (!video || !audio || !activeVisualScene) return;
+
+    if (activeVisualScene.mediaType !== "video") return;
+
+    const scenePosition = Math.max(
+      0,
+      currentTime - activeVisualScene.startTime
+    );
+
+    if (
+      Number.isFinite(scenePosition) &&
+      Math.abs(video.currentTime - scenePosition) > 0.4
+    ) {
+      video.currentTime = scenePosition;
+    }
+
+    if (audio.paused || audio.ended) {
+      video.pause();
+    } else {
+      video.play().catch(() => {
+        // Browser may prevent autoplay.
+      });
+    }
+  }, [currentTime, activeVisualScene?.id, activeVisualScene?.mediaUrl]);
+
   useEffect(() => {
     if (selectedPauseId) {
       selectedPauseCardRef.current?.scrollIntoView({
@@ -1053,7 +1084,56 @@ function App() {
                 <p>
                   Narration position: {formatDuration(currentTime)}
                 </p>
+                <div className="synchronized-preview">
+                  {activeVisualScene?.mediaUrl ? (
+                    activeVisualScene.mediaType === "image" ? (
+                      <img
+                        key={activeVisualScene.id}
+                        src={`${import.meta.env.VITE_API_URL}${activeVisualScene.mediaUrl}`}
+                        alt={activeVisualScene.title || "Active scene"}
+                      />
+                    ) : (
+                      <video
+                        key={activeVisualScene.id}
+                        ref={visualVideoRef}
+                        src={`${import.meta.env.VITE_API_URL}${activeVisualScene.mediaUrl}`}
+                        muted
+                        playsInline
+                        preload="auto"
+                        onLoadedMetadata={(event) => {
+                          const video = event.currentTarget;
+                          const audio = audioRef.current;
 
+                          if (!audio) return;
+
+                          const position = Math.max(
+                            0,
+                            audio.currentTime - activeVisualScene.startTime
+                          );
+
+                          video.currentTime = Math.min(
+                            position,
+                            Number.isFinite(video.duration)
+                              ? video.duration
+                              : position
+                          );
+
+                          if (!audio.paused) {
+                            video.play().catch(() => { });
+                          }
+                        }}
+                      />
+                    )
+                  ) : (
+                    <div className="synchronized-preview-placeholder">
+                      <p>
+                        {activeVisualScene
+                          ? "No media uploaded for this scene."
+                          : "No active visual scene at this position."}
+                      </p>
+                    </div>
+                  )}
+                </div>
                 {activeVisualScene ? (
                   <div className="active-scene-details">
                     <strong>{activeVisualScene.title}</strong>
