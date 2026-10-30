@@ -600,3 +600,36 @@ a {
   font-size: 13px;
   overflow-wrap: anywhere;
 }
+
+
+.visual-scene-preview {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  margin-top: 12px;
+  padding: 14px;
+  background: #0b1020;
+  border: 1px solid #34405a;
+  border-radius: 10px;
+  min-width: 0;
+}
+
+.visual-scene-preview img,
+.visual-scene-preview video {
+  display: block;
+  width: 100%;
+  max-width: 100%;
+  max-height: 360px;
+  object-fit: contain;
+  background: #050816;
+  border-radius: 8px;
+}
+
+.visual-scene-preview video {
+  aspect-ratio: 16 / 9;
+}
+
+.visual-scene-preview .visual-scene-media-status {
+  margin: 0;
+  overflow-wrap: anywhere;
+}

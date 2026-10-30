@@ -1197,9 +1197,28 @@ function App() {
                         )}
 
                         {scene.mediaUrl && (
-                          <p className="visual-scene-media-status">
-                            Uploaded: {scene.originalName}
-                          </p>
+                          <div className="visual-scene-preview">
+                            <p className="visual-scene-media-status">
+                              Uploaded: {scene.originalName}
+                            </p>
+
+                            {scene.mediaType === "image" ? (
+                              <img
+                                src={`${import.meta.env.VITE_API_URL}${scene.mediaUrl}`}
+                                alt={scene.title || "Visual scene image"}
+                                loading="lazy"
+                              />
+                            ) : (
+                              <video
+                                src={`${import.meta.env.VITE_API_URL}${scene.mediaUrl}`}
+                                controls
+                                preload="metadata"
+                                playsInline
+                              >
+                                Your browser does not support video playback.
+                              </video>
+                            )}
+                          </div>
                         )}
                       </div>
                     </li>
