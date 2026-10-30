@@ -1,4 +1,3 @@
-
 * {
   box-sizing: border-box;
 }
@@ -315,7 +314,10 @@ a {
   width: 3px;
   background: #fbbf24;
   transform: translateX(-50%);
-  pointer-events: none;
+  cursor: pointer;
+  border: none;
+  padding: 0;
+  z-index: 2;
   box-shadow: 0 0 8px rgba(251, 191, 36, 0.6);
 }
 
@@ -433,4 +435,25 @@ a {
 .pause-delete-button:hover {
   background: #7f1d1d;
   color: #ffffff;
+}
+
+.teaching-pause-marker.selected {
+  background: #facc15;
+  width: 8px;
+  box-shadow: 0 0 12px rgba(250, 204, 21, 0.8);
+}
+
+.teaching-pause-marker:focus-visible {
+  outline: 2px solid #ffffff;
+  outline-offset: 4px;
+}
+
+.pause-item-selected {
+  border-color: #facc15;
+  box-shadow: 0 0 12px rgba(250, 204, 21, 0.15);
+}
+
+.selected-pause-message {
+  color: #facc15 !important;
+  font-weight: 600;
 }

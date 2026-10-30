@@ -74,6 +74,7 @@ function App() {
   const [audioDuration, setAudioDuration] = useState<number | null>(null);
 
   const [currentTime, setCurrentTime] = useState(0);
+  const [selectedPauseId, setSelectedPauseId] = useState<string | null>(null);
   const selectedProject = projects.find(
     (project) => project.id === selectedProjectId
   );
@@ -140,6 +141,7 @@ function App() {
     setSelectedProjectId(projectId);
     setAudioDuration(null);
     setCurrentTime(0);
+    setSelectedPauseId(null);
     setAudioFile(null);
     setUploadMessage("");
     setMessage("");
@@ -603,9 +605,11 @@ function App() {
                           />
 
                           {teachingPauses.map((pause) => (
-                            <div
+                            <button
                               key={pause.id}
-                              className="teaching-pause-marker"
+                              type="button"
+                              className={`teaching-pause-marker ${selectedPauseId === pause.id ? "selected" : ""
+                                }`}
                               style={{
                                 left: `${Math.min(
                                   100,
@@ -613,6 +617,12 @@ function App() {
                                 )}%`,
                               }}
                               title={`${pause.label} at ${formatDuration(pause.time)} (${pause.duration}s)`}
+                              aria-label={`Select ${pause.label} at ${formatDuration(pause.time)}`}
+                              aria-pressed={selectedPauseId === pause.id}
+                              onClick={(event) => {
+                                event.stopPropagation();
+                                setSelectedPauseId(pause.id);
+                              }}
                             />
                           ))}
 
@@ -642,12 +652,26 @@ function App() {
 
                           <h4>Teaching Pauses ({teachingPauses.length})</h4>
 
+                          {selectedPauseId && teachingPauses.some(
+                            (pause) => pause.id === selectedPauseId
+                          ) && (
+                              <p className="selected-pause-message">
+                                Selected: {teachingPauses.find(
+                                  (pause) => pause.id === selectedPauseId
+                                )?.label}
+                              </p>
+                            )}
+
                           {teachingPauses.length === 0 ? (
                             <p>No teaching pauses added yet.</p>
                           ) : (
                             <ul className="pause-list">
                               {teachingPauses.map((pause) => (
-                                <li key={pause.id} className="pause-item">
+                                <li
+                                  key={pause.id}
+                                  className={`pause-item ${selectedPauseId === pause.id ? "pause-item-selected" : ""
+                                    }`}
+                                >
                                   <div className="pause-item-header">
                                     <strong>{formatDuration(pause.time)}</strong>
 
