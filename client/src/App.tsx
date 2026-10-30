@@ -86,6 +86,12 @@ function App() {
   const [uploading, setUploading] = useState(false);
   const [uploadMessage, setUploadMessage] = useState("");
 
+  const [visualFiles, setVisualFiles] = useState<Record<string, File>>({});
+  const [uploadingSceneId, setUploadingSceneId] = useState<string | null>(null);
+  const [visualUploadMessages, setVisualUploadMessages] = useState<
+    Record<string, string>
+  >({});
+
   const [audioDuration, setAudioDuration] = useState<number | null>(null);
 
   const [currentTime, setCurrentTime] = useState(0);
@@ -369,6 +375,116 @@ function App() {
 
     return `${paddedMinutes}:${paddedSeconds}`;
   }
+
+  async function uploadVisualScene(scene: VisualScene) {
+    if (!selectedProjectId || uploadingSceneId) return;
+
+    const file = visualFiles[scene.id];
+
+    if (!file) {
+      setVisualUploadMessages((previous) => ({
+        ...previous,
+        [scene.id]: "Please select an image or video.",
+      }));
+      return;
+    }
+
+    const allowedTypes = [
+      "image/jpeg",
+      "image/png",
+      "image/webp",
+      "video/mp4",
+    ];
+
+    const extension = file.name.split(".").pop()?.toLowerCase();
+
+    if (
+      !allowedTypes.includes(file.type) ||
+      !["jpg", "jpeg", "png", "webp", "mp4"].includes(extension ?? "")
+    ) {
+      setVisualUploadMessages((previous) => ({
+        ...previous,
+        [scene.id]: "Only JPG, PNG, WebP and MP4 files are supported.",
+      }));
+      return;
+    }
+
+    if (file.size > 100 * 1024 * 1024) {
+      setVisualUploadMessages((previous) => ({
+        ...previous,
+        [scene.id]: "File must not exceed 100 MB.",
+      }));
+      return;
+    }
+
+    const projectId = selectedProjectId;
+    setUploadingSceneId(scene.id);
+
+    setVisualUploadMessages((previous) => ({
+      ...previous,
+      [scene.id]: "Uploading visual media...",
+    }));
+
+    try {
+      const formData = new FormData();
+      formData.append("visual", file);
+
+      const response = await fetch(
+        `${import.meta.env.VITE_API_URL}/api/projects/${projectId}/visuals`,
+        {
+          method: "POST",
+          body: formData,
+        }
+      );
+
+      const data = await response.json();
+
+      if (!response.ok || !data.success || !data.media?.url) {
+        throw new Error(data.message || "Visual upload failed.");
+      }
+
+      const updatedProjects = projects.map((project) => {
+        if (project.id !== projectId) return project;
+
+        return {
+          ...project,
+          visualScenes: (project.visualScenes ?? []).map((item) =>
+            item.id === scene.id
+              ? {
+                ...item,
+                mediaUrl: data.media.url as string,
+                originalName: data.media.originalName as string,
+                mediaType: data.media.mediaType as VisualMediaType,
+              }
+              : item
+          ),
+        };
+      });
+
+      setProjects(updatedProjects);
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(updatedProjects));
+
+      setVisualFiles((previous) => {
+        const updated = { ...previous };
+        delete updated[scene.id];
+        return updated;
+      });
+
+      setVisualUploadMessages((previous) => ({
+        ...previous,
+        [scene.id]: "Visual media uploaded successfully!",
+      }));
+    } catch (error) {
+      setVisualUploadMessages((previous) => ({
+        ...previous,
+        [scene.id]:
+          error instanceof Error ? error.message : "Upload failed.",
+      }));
+    } finally {
+      setUploadingSceneId(null);
+    }
+  }
+
   async function uploadNarration() {
     if (!selectedProjectId || !audioFile || uploading) return;
 
@@ -1033,9 +1149,111 @@ function App() {
                       </p>
 
 
-                      <p className="visual-scene-media-status">
-                        Media not uploaded yet
-                      </p>
+                      <div className="visual-scene-upload">
+                        <label htmlFor={`visual-upload-${scene.id}`}>
+                          Upload Image or Video
+                        </label>
+
+                        <input
+                          id={`visual-upload-${scene.id}`}
+                          type="file"
+                          accept=".jpg,.jpeg,.png,.webp,.mp4,image/jpeg,image/png,image/webp,video/mp4"
+                          onChange={(event) => {
+                            const file = event.target.files?.[0];
+
+                            if (file) {
+                              setVisualFiles((previous) => ({
+                                ...previous,
+                                [scene.id]: file,
+                              }));
+                            }
+                          }}
+                        />
+
+                        {visualFiles[scene.id] && (
+                          <p>
+                            Selected: {visualFiles[scene.id].name}
+                          </p>
+                        )}
+
+                        <button
+                          type="button"
+                          className="primary-button"
+                          disabled={
+                            !visualFiles[scene.id] ||
+                            uploadingSceneId !== null
+                          }
+                          onClick={() => uploadVisualScene(scene)}
+                        >
+                          {uploadingSceneId === scene.id
+                            ? "Uploading..."
+                            : "Upload Media"}
+                        </button>
+
+                        {visualUploadMessages[scene.id] && (
+                          <p role="status">
+                            {visualUploadMessages[scene.id]}
+                          </p>
+                        )}
+
+                        {scene.mediaUrl && (
+                          <p className="visual-scene-media-status">
+                            Uploaded: {scene.originalName}
+                          </p>
+                        )}
+                      </div><div className="visual-scene-upload">
+                        <label htmlFor={`visual-upload-${scene.id}`}>
+                          Upload Image or Video
+                        </label>
+
+                        <input
+                          id={`visual-upload-${scene.id}`}
+                          type="file"
+                          accept=".jpg,.jpeg,.png,.webp,.mp4,image/jpeg,image/png,image/webp,video/mp4"
+                          onChange={(event) => {
+                            const file = event.target.files?.[0];
+
+                            if (file) {
+                              setVisualFiles((previous) => ({
+                                ...previous,
+                                [scene.id]: file,
+                              }));
+                            }
+                          }}
+                        />
+
+                        {visualFiles[scene.id] && (
+                          <p>
+                            Selected: {visualFiles[scene.id].name}
+                          </p>
+                        )}
+
+                        <button
+                          type="button"
+                          className="primary-button"
+                          disabled={
+                            !visualFiles[scene.id] ||
+                            uploadingSceneId !== null
+                          }
+                          onClick={() => uploadVisualScene(scene)}
+                        >
+                          {uploadingSceneId === scene.id
+                            ? "Uploading..."
+                            : "Upload Media"}
+                        </button>
+
+                        {visualUploadMessages[scene.id] && (
+                          <p role="status">
+                            {visualUploadMessages[scene.id]}
+                          </p>
+                        )}
+
+                        {scene.mediaUrl && (
+                          <p className="visual-scene-media-status">
+                            Uploaded: {scene.originalName}
+                          </p>
+                        )}
+                      </div>
                     </li>
                   ))}
                 </ul>
