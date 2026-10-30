@@ -1032,6 +1032,7 @@ function App() {
                         {scene.mediaType === "image" ? " Image" : " Video"}
                       </p>
 
+
                       <p className="visual-scene-media-status">
                         Media not uploaded yet
                       </p>
