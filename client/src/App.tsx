@@ -95,7 +95,7 @@ function App() {
   );
 
   const teachingPauses = selectedProject?.teachingPauses ?? [];
-  const visualScenes = selectedProject?.visualScenes ?? [];
+  
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const selectedPauseCardRef = useRef<HTMLLIElement | null>(null);
   useEffect(() => {
