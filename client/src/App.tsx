@@ -165,6 +165,45 @@ function App() {
     setProjects(updatedProjects);
     localStorage.setItem(STORAGE_KEY, JSON.stringify(updatedProjects));
   }
+
+  function updateTeachingPause(
+    pauseId: string,
+    updates: Partial<Pick<TeachingPause, "label" | "duration">>
+  ) {
+    if (!selectedProjectId) return;
+
+    const updatedProjects = projects.map((project) => {
+      if (project.id !== selectedProjectId) return project;
+
+      return {
+        ...project,
+        teachingPauses: (project.teachingPauses ?? []).map((pause) =>
+          pause.id === pauseId ? { ...pause, ...updates } : pause
+        ),
+      };
+    });
+
+    setProjects(updatedProjects);
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(updatedProjects));
+  }
+
+  function deleteTeachingPause(pauseId: string) {
+    if (!selectedProjectId) return;
+
+    const updatedProjects = projects.map((project) => {
+      if (project.id !== selectedProjectId) return project;
+
+      return {
+        ...project,
+        teachingPauses: (project.teachingPauses ?? []).filter(
+          (pause) => pause.id !== pauseId
+        ),
+      };
+    });
+
+    setProjects(updatedProjects);
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(updatedProjects));
+  }
   function formatDuration(seconds: number): string {
     if (!Number.isFinite(seconds) || seconds < 0) {
       return "Unknown";
@@ -578,14 +617,64 @@ function App() {
                           {teachingPauses.length === 0 ? (
                             <p>No teaching pauses added yet.</p>
                           ) : (
-                            <ul>
+                            <ul className="pause-list">
                               {teachingPauses.map((pause) => (
-                                <li key={pause.id}>
-                                  {pause.label} — {formatDuration(pause.time)}
-                                  {" "}({pause.duration}s)
+                                <li key={pause.id} className="pause-item">
+                                  <div className="pause-item-header">
+                                    <strong>{formatDuration(pause.time)}</strong>
+
+                                    <button
+                                      type="button"
+                                      className="pause-delete-button"
+                                      onClick={() => deleteTeachingPause(pause.id)}
+                                      aria-label={`Delete pause at ${formatDuration(pause.time)}`}
+                                    >
+                                      Delete
+                                    </button>
+                                  </div>
+
+                                  <label htmlFor={`pause-label-${pause.id}`}>
+                                    Pause Label
+                                  </label>
+
+                                  <input
+                                    id={`pause-label-${pause.id}`}
+                                    type="text"
+                                    value={pause.label}
+                                    onChange={(event) =>
+                                      updateTeachingPause(pause.id, {
+                                        label: event.target.value,
+                                      })
+                                    }
+                                  />
+
+                                  <label htmlFor={`pause-duration-${pause.id}`}>
+                                    Duration (seconds)
+                                  </label>
+
+                                  <input
+                                    id={`pause-duration-${pause.id}`}
+                                    type="number"
+                                    min="1"
+                                    max="60"
+                                    step="1"
+                                    value={pause.duration}
+                                    onChange={(event) => {
+                                      const duration = Number(event.target.value);
+
+                                      if (
+                                        Number.isInteger(duration) &&
+                                        duration >= 1 &&
+                                        duration <= 60
+                                      ) {
+                                        updateTeachingPause(pause.id, { duration });
+                                      }
+                                    }}
+                                  />
                                 </li>
                               ))}
                             </ul>
+                          )}
                           )}
                         </div>
 
