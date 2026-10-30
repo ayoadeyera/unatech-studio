@@ -27,6 +27,8 @@ interface Project {
 }
 
 const STORAGE_KEY = "unatech-projects";
+const VIEW_STORAGE_KEY = "unatech-current-view";
+const SELECTED_PROJECT_KEY = "unatech-selected-project";
 
 function App() {
   const [apiStatus, setApiStatus] = useState("Connecting...");
@@ -41,7 +43,20 @@ function App() {
 
   const [view, setView] = useState<
     "dashboard" | "create" | "projects" | "editor"
-  >("dashboard");
+  >(() => {
+    const savedView = localStorage.getItem(VIEW_STORAGE_KEY);
+
+    if (
+      savedView === "dashboard" ||
+      savedView === "create" ||
+      savedView === "projects" ||
+      savedView === "editor"
+    ) {
+      return savedView;
+    }
+
+    return "dashboard";
+  });
 
   const [title, setTitle] = useState("");
   const [script, setScript] = useState("");
@@ -49,8 +64,9 @@ function App() {
   const [message, setMessage] = useState("");
 
   const [selectedProjectId, setSelectedProjectId] =
-    useState<string | null>(null);
-
+    useState<string | null>(() => {
+      return localStorage.getItem(SELECTED_PROJECT_KEY);
+    });
   const [audioFile, setAudioFile] = useState<File | null>(null);
   const [uploading, setUploading] = useState(false);
   const [uploadMessage, setUploadMessage] = useState("");
@@ -64,6 +80,18 @@ function App() {
 
   const teachingPauses = selectedProject?.teachingPauses ?? [];
   const audioRef = useRef<HTMLAudioElement | null>(null);
+
+  useEffect(() => {
+    localStorage.setItem(VIEW_STORAGE_KEY, view);
+  }, [view]);
+
+  useEffect(() => {
+    if (selectedProjectId) {
+      localStorage.setItem(SELECTED_PROJECT_KEY, selectedProjectId);
+    } else {
+      localStorage.removeItem(SELECTED_PROJECT_KEY);
+    }
+  }, [selectedProjectId]);
 
   useEffect(() => {
     fetch(`${import.meta.env.VITE_API_URL}/api/health`)
@@ -675,7 +703,7 @@ function App() {
                               ))}
                             </ul>
                           )}
-                          
+
                         </div>
 
                       </section>
