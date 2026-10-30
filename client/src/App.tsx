@@ -241,7 +241,9 @@ function App() {
 
   function deleteTeachingPause(pauseId: string) {
     if (!selectedProjectId) return;
-
+    if (selectedPauseId === pauseId) {
+      setSelectedPauseId(null);
+    }
     const updatedProjects = projects.map((project) => {
       if (project.id !== selectedProjectId) return project;
 
@@ -525,6 +527,19 @@ function App() {
                       ref={audioRef}
                       controls
                       preload="metadata"
+                      onEnded={(event) => {
+                        const audio = event.currentTarget;
+
+                        audio.currentTime = 0;
+                        setCurrentTime(0);
+
+                        if (selectedProjectId) {
+                          localStorage.setItem(
+                            `${PLAYBACK_POSITION_PREFIX}${selectedProjectId}`,
+                            "0"
+                          );
+                        }
+                      }}
                       onTimeUpdate={(event) => {
                         const position = event.currentTarget.currentTime;
 
@@ -565,14 +580,20 @@ function App() {
                         const storageKey = `${PLAYBACK_POSITION_PREFIX}${selectedProjectId}`;
                         const savedPosition = Number(localStorage.getItem(storageKey));
 
-                        if (
+                        const restoredPosition =
                           Number.isFinite(savedPosition) &&
-                          savedPosition >= 0 &&
-                          savedPosition <= duration
-                        ) {
-                          audio.currentTime = savedPosition;
-                          setCurrentTime(savedPosition);
-                        }
+                            savedPosition >= 0 &&
+                            savedPosition < duration
+                            ? savedPosition
+                            : 0;
+
+                        audio.currentTime = restoredPosition;
+                        setCurrentTime(restoredPosition);
+
+                        localStorage.setItem(
+                          storageKey,
+                          String(restoredPosition)
+                        );
                       }}
                       onError={() => setAudioDuration(null)}
                       style={{ width: "100%", marginTop: "12px" }}
