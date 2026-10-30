@@ -4,12 +4,20 @@ import "./App.css";
 
 type Preset = "Focused Teaching" | "Entertaining Presenter" | "High-Energy Explainer";
 
+interface TeachingPause {
+  id: string;
+  time: number;
+  duration: number;
+  label: string;
+}
+
 interface Project {
   id: string;
   title: string;
   script: string;
   preset: Preset;
   createdAt: string;
+  teachingPauses?: TeachingPause[];
   narration?: {
     filename: string;
     originalName: string;
@@ -50,6 +58,11 @@ function App() {
   const [audioDuration, setAudioDuration] = useState<number | null>(null);
 
   const [currentTime, setCurrentTime] = useState(0);
+  const selectedProject = projects.find(
+    (project) => project.id === selectedProjectId
+  );
+
+  const teachingPauses = selectedProject?.teachingPauses ?? [];
   const audioRef = useRef<HTMLAudioElement | null>(null);
 
   useEffect(() => {
