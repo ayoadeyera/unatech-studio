@@ -123,29 +123,49 @@ function App() {
     const audio = audioRef.current;
 
     if (!video || !audio || !activeVisualScene) return;
-
     if (activeVisualScene.mediaType !== "video") return;
 
     const scenePosition = Math.max(
       0,
-      currentTime - activeVisualScene.startTime
+      audio.currentTime - activeVisualScene.startTime
     );
 
+    const videoDuration = video.duration;
+
+    const targetPosition = Number.isFinite(videoDuration)
+      ? Math.min(scenePosition, Math.max(0, videoDuration - 0.05))
+      : scenePosition;
+
     if (
-      Number.isFinite(scenePosition) &&
-      Math.abs(video.currentTime - scenePosition) > 0.4
+      Number.isFinite(targetPosition) &&
+      video.readyState >= 1 &&
+      Math.abs(video.currentTime - targetPosition) > 0.25
     ) {
-      video.currentTime = scenePosition;
+      video.currentTime = targetPosition;
     }
 
-    if (audio.paused || audio.ended) {
+    if (
+      audio.paused ||
+      audio.ended ||
+      (Number.isFinite(videoDuration) &&
+        scenePosition >= videoDuration)
+    ) {
       video.pause();
     } else {
-      video.play().catch(() => {
-        // Browser may prevent autoplay.
-      });
+      video.playbackRate = audio.playbackRate;
+
+      if (video.paused) {
+        video.play().catch(() => {
+          // Browser may block playback.
+        });
+      }
     }
-  }, [currentTime, activeVisualScene?.id, activeVisualScene?.mediaUrl]);
+  }, [
+    currentTime,
+    activeVisualScene?.id,
+    activeVisualScene?.mediaUrl,
+    activeVisualScene?.startTime,
+  ]);
 
   useEffect(() => {
     if (selectedPauseId) {
@@ -778,6 +798,34 @@ function App() {
                       ref={audioRef}
                       controls
                       preload="metadata"
+                      onPause={() => {
+                        visualVideoRef.current?.pause();
+                      }}
+                      onPlay={() => {
+                        const video = visualVideoRef.current;
+
+                        if (!video || !activeVisualScene) return;
+
+                        if (activeVisualScene.mediaType !== "video") return;
+
+                        const scenePosition = Math.max(
+                          0,
+                          audioRef.current!.currentTime - activeVisualScene.startTime
+                        );
+
+                        if (
+                          Number.isFinite(video.duration) &&
+                          scenePosition >= video.duration
+                        ) {
+                          return;
+                        }
+
+                        video.playbackRate = audioRef.current?.playbackRate ?? 1;
+
+                        video.play().catch(() => {
+                          // Browser may block playback.
+                        });
+                      }}
                       onEnded={(event) => {
                         const audio = event.currentTarget;
 
