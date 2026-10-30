@@ -333,3 +333,27 @@ a {
 .timeline-track:hover {
   border-color: #a78bfa;
 }
+
+.teaching-pauses {
+  margin-top: 24px;
+  padding-top: 18px;
+  border-top: 1px solid #34405a;
+}
+
+.teaching-pauses h4 {
+  margin: 24px 0 12px;
+  color: #c4b5fd;
+}
+
+.teaching-pauses ul {
+  padding-left: 22px;
+}
+
+.teaching-pauses li {
+  padding: 8px 0;
+  color: #cbd5e1;
+}
+
+.teaching-pauses p {
+  color: #94a3b8;
+}

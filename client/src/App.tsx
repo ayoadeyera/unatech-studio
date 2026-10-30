@@ -136,7 +136,35 @@ function App() {
     audioRef.current.currentTime = newTime;
     setCurrentTime(newTime);
   }
+  function addTeachingPause() {
+    if (!selectedProjectId || audioDuration === null || audioDuration <= 0) {
+      return;
+    }
 
+    const pause: TeachingPause = {
+      id: crypto.randomUUID(),
+      time: Math.min(currentTime, audioDuration),
+      duration: 3,
+      label: "Teaching Pause",
+    };
+
+    const updatedProjects = projects.map((project) => {
+      if (project.id !== selectedProjectId) return project;
+
+      const updatedPauses = [
+        ...(project.teachingPauses ?? []),
+        pause,
+      ].sort((a, b) => a.time - b.time);
+
+      return {
+        ...project,
+        teachingPauses: updatedPauses,
+      };
+    });
+
+    setProjects(updatedProjects);
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(updatedProjects));
+  }
   function formatDuration(seconds: number): string {
     if (!Number.isFinite(seconds) || seconds < 0) {
       return "Unknown";
@@ -521,6 +549,32 @@ function App() {
                         <p className="timeline-position">
                           Current Position: {formatDuration(currentTime)}
                         </p>
+
+                        <div className="teaching-pauses">
+                          <button
+                            type="button"
+                            className="primary-button"
+                            onClick={addTeachingPause}
+                          >
+                            + Add Teaching Pause
+                          </button>
+
+                          <h4>Teaching Pauses ({teachingPauses.length})</h4>
+
+                          {teachingPauses.length === 0 ? (
+                            <p>No teaching pauses added yet.</p>
+                          ) : (
+                            <ul>
+                              {teachingPauses.map((pause) => (
+                                <li key={pause.id}>
+                                  {pause.label} — {formatDuration(pause.time)}
+                                  {" "}({pause.duration}s)
+                                </li>
+                              ))}
+                            </ul>
+                          )}
+                        </div>
+
                       </section>
                     )}
 
