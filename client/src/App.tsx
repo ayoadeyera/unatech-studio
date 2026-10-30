@@ -29,7 +29,7 @@ interface Project {
 const STORAGE_KEY = "unatech-projects";
 const VIEW_STORAGE_KEY = "unatech-current-view";
 const SELECTED_PROJECT_KEY = "unatech-selected-project";
-
+const PLAYBACK_POSITION_PREFIX = "unatech-playback-position-";
 function App() {
   const [apiStatus, setApiStatus] = useState("Connecting...");
   const [connected, setConnected] = useState(false);
@@ -504,16 +504,53 @@ function App() {
                       controls
                       preload="metadata"
                       onTimeUpdate={(event) => {
-                        setCurrentTime(event.currentTarget.currentTime);
+                        const position = event.currentTarget.currentTime;
+
+                        setCurrentTime(position);
+
+                        if (selectedProjectId) {
+                          localStorage.setItem(
+                            `${PLAYBACK_POSITION_PREFIX}${selectedProjectId}`,
+                            String(position)
+                          );
+                        }
                       }}
+
                       onSeeked={(event) => {
-                        setCurrentTime(event.currentTarget.currentTime);
+                        const position = event.currentTarget.currentTime;
+
+                        setCurrentTime(position);
+
+                        if (selectedProjectId) {
+                          localStorage.setItem(
+                            `${PLAYBACK_POSITION_PREFIX}${selectedProjectId}`,
+                            String(position)
+                          );
+                        }
                       }}
                       onLoadedMetadata={(event) => {
-                        const duration = event.currentTarget.duration;
+                        const audio = event.currentTarget;
+                        const duration = audio.duration;
+
                         setAudioDuration(
                           Number.isFinite(duration) ? duration : null
                         );
+
+                        if (!selectedProjectId || !Number.isFinite(duration)) {
+                          return;
+                        }
+
+                        const storageKey = `${PLAYBACK_POSITION_PREFIX}${selectedProjectId}`;
+                        const savedPosition = Number(localStorage.getItem(storageKey));
+
+                        if (
+                          Number.isFinite(savedPosition) &&
+                          savedPosition >= 0 &&
+                          savedPosition <= duration
+                        ) {
+                          audio.currentTime = savedPosition;
+                          setCurrentTime(savedPosition);
+                        }
                       }}
                       onError={() => setAudioDuration(null)}
                       style={{ width: "100%", marginTop: "12px" }}
