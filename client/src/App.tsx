@@ -95,7 +95,7 @@ function App() {
   );
 
   const teachingPauses = selectedProject?.teachingPauses ?? [];
-  
+  const visualScenes = selectedProject?.visualScenes ?? [];
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const selectedPauseCardRef = useRef<HTMLLIElement | null>(null);
   useEffect(() => {
@@ -269,6 +269,80 @@ function App() {
         ...project,
         teachingPauses: (project.teachingPauses ?? []).filter(
           (pause) => pause.id !== pauseId
+        ),
+      };
+    });
+
+    setProjects(updatedProjects);
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(updatedProjects));
+  }
+
+
+  function addVisualScene() {
+    if (!selectedProjectId) return;
+
+    const scene: VisualScene = {
+      id: crypto.randomUUID(),
+      title: `Scene ${visualScenes.length + 1}`,
+      startTime: audioDuration !== null
+        ? Math.min(currentTime, audioDuration)
+        : 0,
+      duration: 5,
+      mediaType: "image",
+      mediaUrl: null,
+      originalName: null,
+    };
+
+    const updatedProjects = projects.map((project) => {
+      if (project.id !== selectedProjectId) return project;
+
+      return {
+        ...project,
+        visualScenes: [...(project.visualScenes ?? []), scene].sort(
+          (a, b) => a.startTime - b.startTime
+        ),
+      };
+    });
+
+    setProjects(updatedProjects);
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(updatedProjects));
+  }
+
+  function updateVisualScene(
+    sceneId: string,
+    updates: Partial<
+      Pick<VisualScene, "title" | "startTime" | "duration" | "mediaType">
+    >
+  ) {
+    if (!selectedProjectId) return;
+
+    const updatedProjects = projects.map((project) => {
+      if (project.id !== selectedProjectId) return project;
+
+      return {
+        ...project,
+        visualScenes: (project.visualScenes ?? [])
+          .map((scene) =>
+            scene.id === sceneId ? { ...scene, ...updates } : scene
+          )
+          .sort((a, b) => a.startTime - b.startTime),
+      };
+    });
+
+    setProjects(updatedProjects);
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(updatedProjects));
+  }
+
+  function deleteVisualScene(sceneId: string) {
+    if (!selectedProjectId) return;
+
+    const updatedProjects = projects.map((project) => {
+      if (project.id !== selectedProjectId) return project;
+
+      return {
+        ...project,
+        visualScenes: (project.visualScenes ?? []).filter(
+          (scene) => scene.id !== sceneId
         ),
       };
     });
@@ -844,7 +918,127 @@ function App() {
                   </div>
                 )}
             </div>
+            <section className="visual-scenes-section">
+              <div className="visual-scenes-header">
+                <div>
+                  <h3>Visual Scenes ({visualScenes.length})</h3>
+                  <p>
+                    Plan the images and video clips that will appear
+                    alongside your narration.
+                  </p>
+                </div>
 
+                <button
+                  type="button"
+                  className="primary-button"
+                  onClick={addVisualScene}
+                >
+                  + Add Visual Scene
+                </button>
+              </div>
+
+              {visualScenes.length === 0 ? (
+                <p>No visual scenes added yet.</p>
+              ) : (
+                <ul className="visual-scenes-list">
+                  {visualScenes.map((scene) => (
+                    <li key={scene.id} className="visual-scene-card">
+                      <div className="visual-scene-card-header">
+                        <strong>{scene.title || "Untitled Scene"}</strong>
+
+                        <button
+                          type="button"
+                          className="pause-delete-button"
+                          onClick={() => deleteVisualScene(scene.id)}
+                        >
+                          Delete
+                        </button>
+                      </div>
+
+                      <label htmlFor={`scene-title-${scene.id}`}>
+                        Scene Title
+                      </label>
+                      <input
+                        id={`scene-title-${scene.id}`}
+                        type="text"
+                        value={scene.title}
+                        onChange={(event) =>
+                          updateVisualScene(scene.id, {
+                            title: event.target.value,
+                          })
+                        }
+                      />
+
+                      <label htmlFor={`scene-start-${scene.id}`}>
+                        Start Time (seconds)
+                      </label>
+                      <input
+                        id={`scene-start-${scene.id}`}
+                        type="number"
+                        min="0"
+                        step="0.1"
+                        value={scene.startTime}
+                        onChange={(event) => {
+                          const value = Number(event.target.value);
+
+                          if (Number.isFinite(value) && value >= 0) {
+                            updateVisualScene(scene.id, {
+                              startTime: value,
+                            });
+                          }
+                        }}
+                      />
+
+                      <label htmlFor={`scene-duration-${scene.id}`}>
+                        Duration (seconds)
+                      </label>
+                      <input
+                        id={`scene-duration-${scene.id}`}
+                        type="number"
+                        min="0.1"
+                        step="0.1"
+                        value={scene.duration}
+                        onChange={(event) => {
+                          const value = Number(event.target.value);
+
+                          if (Number.isFinite(value) && value > 0) {
+                            updateVisualScene(scene.id, {
+                              duration: value,
+                            });
+                          }
+                        }}
+                      />
+
+                      <label htmlFor={`scene-type-${scene.id}`}>
+                        Media Type
+                      </label>
+                      <select
+                        id={`scene-type-${scene.id}`}
+                        value={scene.mediaType}
+                        onChange={(event) =>
+                          updateVisualScene(scene.id, {
+                            mediaType: event.target.value as VisualMediaType,
+                          })
+                        }
+                      >
+                        <option value="image">Image</option>
+                        <option value="video">Video</option>
+                      </select>
+
+                      <p className="visual-scene-summary">
+                        Starts at {formatDuration(scene.startTime)} —
+                        Duration: {scene.duration}s —
+                        {scene.mediaType === "image" ? " Image" : " Video"}
+                      </p>
+
+                      <p className="visual-scene-media-status">
+                        Media not uploaded yet
+                      </p>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </section>
             <button
               className="primary-button"
               onClick={() => setView("projects")}
