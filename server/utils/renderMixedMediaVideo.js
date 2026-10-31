@@ -85,19 +85,41 @@ async function renderMixedMediaVideo({
     ),
   ]);
 
-const narrationDuration = await getMediaDuration(audioPath);
 
-const difference = Math.abs(
-  narrationDuration - timeline.endTime
-);
+  const narrationDuration = await getMediaDuration(audioPath);
 
-if (difference > 0.5) {
-  throw new Error(
-    `Narration duration (${narrationDuration.toFixed(2)}s) ` +
-    `does not match visual timeline (${timeline.endTime.toFixed(2)}s). ` +
-    "Adjust scene durations before rendering."
-  );
-}
+  if (narrationDuration > 300) {
+    throw new Error(
+      "This renderer supports narration up to 300 seconds."
+    );
+  }
+
+  // Keep scenes that begin before the narration ends.
+  // Trim scenes that extend beyond the narration.
+  const renderScenes = timeline.scenes
+    .filter((scene) => scene.startTime < narrationDuration)
+    .map((scene) => ({
+      ...scene,
+      duration: Math.min(
+        scene.endTime,
+        narrationDuration
+      ) - scene.startTime,
+    }));
+
+  if (renderScenes.length === 0) {
+    throw new Error(
+      "No visual scenes remain within the narration duration."
+    );
+  }
+
+  // Extend the last scene when narration is longer.
+  // Images remain displayed; short video clips loop.
+  if (narrationDuration > timeline.endTime) {
+    const lastScene = renderScenes[renderScenes.length - 1];
+
+    lastScene.duration += narrationDuration - timeline.endTime;
+  }
+
 
   await fs.mkdir(path.dirname(outputPath), {
     recursive: true,
@@ -211,7 +233,7 @@ if (difference > 0.5) {
     outputPath,
     filename: path.basename(outputPath),
     size: output.size,
-    sceneCount: timeline.scenes.length,
+    sceneCount: renderScenes.length,
   };
 }
 
