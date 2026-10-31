@@ -8,6 +8,7 @@ const path = require("path");
 const fs = require("fs");
 const crypto = require("crypto");
 const { checkFFmpeg } = require("./utils/ffmpeg");
+const { renderImageVideo } = require("./utils/renderVideo");
 const app = express();
 const PORT = process.env.PORT || 5000;
 
@@ -331,6 +332,125 @@ app.get(
     });
   }
 );
+
+
+const RENDER_OUTPUT_ROOT = path.join(__dirname, "uploads", "renders");
+
+// Generate an MP4 from one uploaded image and narration.
+app.post("/api/projects/:projectId/render", async (req, res) => {
+  const { projectId } = req.params;
+  const { imageFilename, audioFilename } = req.body || {};
+
+  const imagePattern =
+    /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}\.(jpg|png|webp)$/i;
+
+  const audioPattern =
+    /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}\.(mp3|wav)$/i;
+
+  if (
+    typeof imageFilename !== "string" ||
+    typeof audioFilename !== "string" ||
+    !imagePattern.test(imageFilename) ||
+    !audioPattern.test(audioFilename)
+  ) {
+    return res.status(400).json({
+      success: false,
+      message: "Valid image and narration filenames are required.",
+    });
+  }
+
+  const imagePath = path.join(
+    VISUAL_UPLOAD_ROOT,
+    projectId,
+    imageFilename
+  );
+
+  const audioPath = path.join(
+    UPLOAD_ROOT,
+    projectId,
+    audioFilename
+  );
+
+  const outputFilename = `${crypto.randomUUID()}.mp4`;
+  const outputPath = path.join(
+    RENDER_OUTPUT_ROOT,
+    projectId,
+    outputFilename
+  );
+
+  try {
+    if (!fs.existsSync(imagePath) || !fs.existsSync(audioPath)) {
+      return res.status(404).json({
+        success: false,
+        message: "Uploaded image or narration was not found.",
+      });
+    }
+
+    const result = await renderImageVideo({
+      imagePath,
+      audioPath,
+      outputPath,
+    });
+
+    res.status(201).json({
+      success: true,
+      message: "Video rendered successfully.",
+      video: {
+        filename: result.filename,
+        size: result.size,
+        url: `/api/projects/${projectId}/renders/${result.filename}`,
+      },
+    });
+  } catch (error) {
+    console.error("Video rendering failed:", error);
+
+    // Remove an incomplete output if FFmpeg failed.
+    try {
+      fs.rmSync(outputPath, { force: true });
+    } catch (cleanupError) {
+      console.error("Render cleanup failed:", cleanupError);
+    }
+
+    res.status(500).json({
+      success: false,
+      message: "Video rendering failed. Check the server terminal.",
+    });
+  }
+});
+
+// Download or play a rendered MP4.
+app.get(
+  "/api/projects/:projectId/renders/:filename",
+  (req, res) => {
+    const { projectId, filename } = req.params;
+
+    const validFilename =
+      /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}\.mp4$/i;
+
+    if (!validFilename.test(filename)) {
+      return res.status(400).json({
+        success: false,
+        message: "Invalid video filename.",
+      });
+    }
+
+    const filePath = path.join(
+      RENDER_OUTPUT_ROOT,
+      projectId,
+      filename
+    );
+
+    res.sendFile(filePath, (error) => {
+      if (error && !res.headersSent) {
+        res.status(error.status || 404).json({
+          success: false,
+          message: "Rendered video not found.",
+        });
+      }
+    });
+  }
+);
+
 
 // Handle unknown routes
 app.use((req, res) => {
