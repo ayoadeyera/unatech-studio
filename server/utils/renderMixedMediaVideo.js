@@ -1,9 +1,44 @@
 
-const { spawn } = require("node:child_process");
+const { spawn, execFile } = require("node:child_process");
 const fs = require("node:fs/promises");
 const path = require("node:path");
 
 const { prepareScenes } = require("./prepareScenes");
+
+
+function getMediaDuration(filePath) {
+  return new Promise((resolve, reject) => {
+    execFile(
+      "ffprobe",
+      [
+        "-v", "error",
+        "-show_entries", "format=duration",
+        "-of", "default=noprint_wrappers=1:nokey=1",
+        filePath,
+      ],
+      {
+        timeout: 15000,
+        windowsHide: true,
+      },
+      (error, stdout) => {
+        if (error) {
+          return reject(error);
+        }
+
+        const duration = Number(stdout.trim());
+
+        if (!Number.isFinite(duration) || duration <= 0) {
+          return reject(
+            new Error("Unable to determine narration duration.")
+          );
+        }
+
+        resolve(duration);
+      }
+    );
+  });
+}
+
 
 async function renderMixedMediaVideo({
   scenes,
@@ -49,6 +84,20 @@ async function renderMixedMediaVideo({
       fs.access(scene.mediaPath)
     ),
   ]);
+
+const narrationDuration = await getMediaDuration(audioPath);
+
+const difference = Math.abs(
+  narrationDuration - timeline.endTime
+);
+
+if (difference > 0.5) {
+  throw new Error(
+    `Narration duration (${narrationDuration.toFixed(2)}s) ` +
+    `does not match visual timeline (${timeline.endTime.toFixed(2)}s). ` +
+    "Adjust scene durations before rendering."
+  );
+}
 
   await fs.mkdir(path.dirname(outputPath), {
     recursive: true,
