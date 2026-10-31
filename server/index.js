@@ -9,6 +9,8 @@ const fs = require("fs");
 const crypto = require("crypto");
 const { checkFFmpeg } = require("./utils/ffmpeg");
 const { renderImageVideo } = require("./utils/renderVideo");
+const { renderMultiImageVideo } = require("./utils/renderMultiImageVideo");
+const { prepareScenes } = require("./utils/prepareScenes");
 const app = express();
 const PORT = process.env.PORT || 5000;
 
@@ -417,6 +419,166 @@ app.post("/api/projects/:projectId/render", async (req, res) => {
     });
   }
 });
+
+
+ // Generate an MP4 from multiple image scenes and narration.
+app.post(
+  "/api/projects/:projectId/render-multi-images",
+  async (req, res) => {
+    const { projectId } = req.params;
+    const { audioFilename, scenes } = req.body || {};
+
+    const audioPattern =
+      /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}\.(mp3|wav)$/i;
+
+    const imagePattern =
+      /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}\.(jpg|png|webp)$/i;
+
+    if (
+      typeof audioFilename !== "string" ||
+      !audioPattern.test(audioFilename)
+    ) {
+      return res.status(400).json({
+        success: false,
+        message: "A valid narration filename is required.",
+      });
+    }
+
+    if (
+      !Array.isArray(scenes) ||
+      scenes.length < 2 ||
+      scenes.length > 20
+    ) {
+      return res.status(400).json({
+        success: false,
+        message: "Provide between 2 and 20 image scenes.",
+      });
+    }
+
+    let preparedScenes;
+
+    try {
+      // Validate scene order, timing and media types.
+      const timeline = prepareScenes(scenes);
+
+      if (timeline.gaps.length > 0) {
+        throw new Error(
+          "Scenes must be continuous, without timeline gaps."
+        );
+      }
+
+      if (timeline.endTime > 300) {
+        throw new Error(
+          "This test renderer supports up to 300 seconds."
+        );
+      }
+
+      preparedScenes = timeline.scenes.map((scene) => {
+        if (scene.mediaType !== "image") {
+          throw new Error(
+            "Only image scenes are supported in this step."
+          );
+        }
+
+        const expectedPrefix =
+          `/api/projects/${projectId}/visuals/`;
+
+        if (!scene.mediaUrl.startsWith(expectedPrefix)) {
+          throw new Error(
+            `Invalid media URL for scene "${scene.title}".`
+          );
+        }
+
+        const filename = scene.mediaUrl.slice(
+          expectedPrefix.length
+        );
+
+        if (!imagePattern.test(filename)) {
+          throw new Error(
+            `Invalid image filename for scene "${scene.title}".`
+          );
+        }
+
+        return {
+          ...scene,
+          mediaPath: path.join(
+            VISUAL_UPLOAD_ROOT,
+            projectId,
+            filename
+          ),
+        };
+      });
+    } catch (error) {
+      return res.status(400).json({
+        success: false,
+        message: error.message,
+      });
+    }
+
+    const audioPath = path.join(
+      UPLOAD_ROOT,
+      projectId,
+      audioFilename
+    );
+
+    const missingFile =
+      !fs.existsSync(audioPath) ||
+      preparedScenes.some(
+        (scene) => !fs.existsSync(scene.mediaPath)
+      );
+
+    if (missingFile) {
+      return res.status(404).json({
+        success: false,
+        message: "One or more uploaded media files were not found.",
+      });
+    }
+
+    const outputFilename = `${crypto.randomUUID()}.mp4`;
+
+    const outputPath = path.join(
+      RENDER_OUTPUT_ROOT,
+      projectId,
+      outputFilename
+    );
+
+    try {
+      const result = await renderMultiImageVideo({
+        scenes: preparedScenes,
+        audioPath,
+        outputPath,
+      });
+
+      return res.status(201).json({
+        success: true,
+        message: "Multi-image video rendered successfully.",
+        video: {
+          filename: result.filename,
+          size: result.size,
+          sceneCount: result.sceneCount,
+          url:
+            `/api/projects/${projectId}/renders/` +
+            result.filename,
+        },
+      });
+    } catch (error) {
+      console.error("Multi-image rendering failed:", error);
+
+      try {
+        fs.rmSync(outputPath, { force: true });
+      } catch (cleanupError) {
+        console.error("Render cleanup failed:", cleanupError);
+      }
+
+      return res.status(500).json({
+        success: false,
+        message:
+          "Multi-image rendering failed. Check the server terminal.",
+      });
+    }
+  }
+);
+
 
 // Download or play a rendered MP4.
 app.get(
