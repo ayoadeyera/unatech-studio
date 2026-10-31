@@ -11,6 +11,7 @@ const { checkFFmpeg } = require("./utils/ffmpeg");
 const { renderImageVideo } = require("./utils/renderVideo");
 const { renderMultiImageVideo } = require("./utils/renderMultiImageVideo");
 const { prepareScenes } = require("./utils/prepareScenes");
+const { renderMixedMediaVideo } = require("./utils/renderMixedMediaVideo");
 const app = express();
 const PORT = process.env.PORT || 5000;
 
@@ -579,6 +580,171 @@ app.post(
   }
 );
 
+
+ // Generate an MP4 from images, video clips and narration.
+app.post(
+  "/api/projects/:projectId/render-mixed",
+  async (req, res) => {
+    const { projectId } = req.params;
+    const { audioFilename, scenes } = req.body || {};
+
+    const uuidFilename =
+      "[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-" +
+      "[89ab][0-9a-f]{3}-[0-9a-f]{12}";
+
+    const audioPattern = new RegExp(
+      `^${uuidFilename}\\.(mp3|wav)$`, "i"
+    );
+
+    const imagePattern = new RegExp(
+      `^${uuidFilename}\\.(jpg|png|webp)$`, "i"
+    );
+
+    const videoPattern = new RegExp(
+      `^${uuidFilename}\\.mp4$`, "i"
+    );
+
+    if (
+      typeof audioFilename !== "string" ||
+      !audioPattern.test(audioFilename)
+    ) {
+      return res.status(400).json({
+        success: false,
+        message: "A valid narration filename is required.",
+      });
+    }
+
+    if (
+      !Array.isArray(scenes) ||
+      scenes.length < 2 ||
+      scenes.length > 20
+    ) {
+      return res.status(400).json({
+        success: false,
+        message: "Provide between 2 and 20 visual scenes.",
+      });
+    }
+
+    let preparedScenes;
+
+    try {
+      const timeline = prepareScenes(scenes);
+
+      if (timeline.gaps.length > 0) {
+        throw new Error(
+          "Scenes must be continuous without timeline gaps."
+        );
+      }
+
+      if (timeline.endTime > 300) {
+        throw new Error(
+          "Maximum timeline duration is 300 seconds."
+        );
+      }
+
+      preparedScenes = timeline.scenes.map((scene) => {
+        const prefix =
+          `/api/projects/${projectId}/visuals/`;
+
+        if (!scene.mediaUrl.startsWith(prefix)) {
+          throw new Error(
+            `Invalid media URL for scene "${scene.title}".`
+          );
+        }
+
+        const filename = scene.mediaUrl.slice(
+          prefix.length
+        );
+
+        const validFilename =
+          scene.mediaType === "image"
+            ? imagePattern.test(filename)
+            : videoPattern.test(filename);
+
+        if (!validFilename) {
+          throw new Error(
+            `Invalid uploaded file for scene "${scene.title}".`
+          );
+        }
+
+        return {
+          ...scene,
+          mediaPath: path.join(
+            VISUAL_UPLOAD_ROOT,
+            projectId,
+            filename
+          ),
+        };
+      });
+    } catch (error) {
+      return res.status(400).json({
+        success: false,
+        message: error.message,
+      });
+    }
+
+    const audioPath = path.join(
+      UPLOAD_ROOT,
+      projectId,
+      audioFilename
+    );
+
+    if (
+      !fs.existsSync(audioPath) ||
+      preparedScenes.some(
+        (scene) => !fs.existsSync(scene.mediaPath)
+      )
+    ) {
+      return res.status(404).json({
+        success: false,
+        message: "One or more uploaded media files were not found.",
+      });
+    }
+
+    const outputFilename = `${crypto.randomUUID()}.mp4`;
+
+    const outputPath = path.join(
+      RENDER_OUTPUT_ROOT,
+      projectId,
+      outputFilename
+    );
+
+    try {
+      const result = await renderMixedMediaVideo({
+        scenes: preparedScenes,
+        audioPath,
+        outputPath,
+      });
+
+      return res.status(201).json({
+        success: true,
+        message: "Mixed-media video rendered successfully.",
+        video: {
+          filename: result.filename,
+          size: result.size,
+          sceneCount: result.sceneCount,
+          url:
+            `/api/projects/${projectId}/renders/` +
+            result.filename,
+        },
+      });
+    } catch (error) {
+      console.error("Mixed-media rendering failed:", error);
+
+      try {
+        fs.rmSync(outputPath, { force: true });
+      } catch (cleanupError) {
+        console.error("Render cleanup failed:", cleanupError);
+      }
+
+      return res.status(500).json({
+        success: false,
+        message:
+          "Mixed-media rendering failed. Check the server terminal.",
+      });
+    }
+  }
+);
 
 // Download or play a rendered MP4.
 app.get(
