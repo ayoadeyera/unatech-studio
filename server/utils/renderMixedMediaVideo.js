@@ -128,7 +128,7 @@ async function renderMixedMediaVideo({
   const args = ["-hide_banner", "-y"];
 
   // Add images and video clips in timeline order.
-  for (const scene of timeline.scenes) {
+  for (const scene of renderScenes) {
     if (scene.mediaType === "image") {
       args.push(
         "-loop", "1",
@@ -149,7 +149,7 @@ async function renderMixedMediaVideo({
   // Narration is the final input.
   args.push("-i", audioPath);
 
-  const filters = timeline.scenes.map((scene, index) => {
+  const filters = renderScenes.map((scene, index) => {
     return (
       `[${index}:v:0]` +
       "scale=1280:720:force_original_aspect_ratio=decrease," +
@@ -161,18 +161,18 @@ async function renderMixedMediaVideo({
     );
   });
 
-  const videoInputs = timeline.scenes
+  const videoInputs = renderScenes
     .map((_, index) => `[v${index}]`)
     .join("");
 
   filters.push(
-    `${videoInputs}concat=n=${timeline.scenes.length}:v=1:a=0[vout]`
+    `${videoInputs}concat=n=${renderScenes.length}:v=1:a=0[vout]`
   );
 
   args.push(
     "-filter_complex", filters.join(";"),
     "-map", "[vout]",
-    "-map", `${timeline.scenes.length}:a:0`,
+    "-map", `${renderScenes.length}:a:0`,
     "-c:v", "libx264",
     "-preset", "veryfast",
     "-crf", "23",
