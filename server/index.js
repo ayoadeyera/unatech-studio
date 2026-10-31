@@ -7,7 +7,7 @@ const multer = require("multer");
 const path = require("path");
 const fs = require("fs");
 const crypto = require("crypto");
-
+const { checkFFmpeg } = require("./utils/ffmpeg");
 const app = express();
 const PORT = process.env.PORT || 5000;
 
@@ -157,6 +157,24 @@ app.get("/api/health", (req, res) => {
     application: "UnaTech Studio",
     version: "1.0.0",
   });
+});
+
+// Check FFmpeg availability
+app.get("/api/ffmpeg/status", async (req, res) => {
+  try {
+    const versions = await checkFFmpeg();
+
+    res.status(200).json({
+      success: true,
+      message: "FFmpeg is ready for video rendering.",
+      tools: versions,
+    });
+  } catch (error) {
+    res.status(503).json({
+      success: false,
+      message: "FFmpeg or FFprobe is unavailable.",
+    });
+  }
 });
 
 // API welcome
