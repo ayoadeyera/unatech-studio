@@ -86,6 +86,7 @@ function App() {
   const [uploading, setUploading] = useState(false);
   const [uploadMessage, setUploadMessage] = useState("");
   const [rendering, setRendering] = useState(false);
+  const [renderSeconds, setRenderSeconds] = useState(0);
   const [renderMessage, setRenderMessage] = useState("");
   const [renderedVideoUrl, setRenderedVideoUrl] = useState<string | null>(null);
   const [visualFiles, setVisualFiles] = useState<Record<string, File>>({});
@@ -119,6 +120,16 @@ function App() {
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const visualVideoRef = useRef<HTMLVideoElement | null>(null);
   const selectedPauseCardRef = useRef<HTMLLIElement | null>(null);
+
+  useEffect(() => {
+    if (!rendering) return;
+
+    const interval = window.setInterval(() => {
+      setRenderSeconds((seconds) => seconds + 1);
+    }, 1000);
+
+    return () => window.clearInterval(interval);
+  }, [rendering]);
 
   useEffect(() => {
     const video = visualVideoRef.current;
@@ -628,8 +639,9 @@ function App() {
       return;
     }
 
+    setRenderSeconds(0);
     setRendering(true);
-    setRenderMessage("Generating your video...");
+    setRenderMessage("Generating your video. Keep this page open...");
     setRenderedVideoUrl(null);
 
     try {
@@ -1475,9 +1487,26 @@ function App() {
                 {rendering ? "Generating Video..." : "Generate Video"}
               </button>
 
+
+              {rendering && (
+                <div className="render-progress" role="status">
+                  <p>Rendering video...</p>
+                  <p>
+                    Elapsed time:{" "}
+                    {String(Math.floor(renderSeconds / 60)).padStart(2, "0")}:
+                    {String(renderSeconds % 60).padStart(2, "0")}
+                  </p>
+                  <p>
+                    Processing your narration and visual scenes.
+                    Please keep this page open.
+                  </p>
+                </div>
+              )}
+
               {renderMessage && (
                 <p role="status">{renderMessage}</p>
               )}
+
 
               {renderedVideoUrl && (
                 <p>Your video is ready. Preview and download controls are coming next.</p>
