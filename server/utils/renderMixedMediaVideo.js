@@ -55,11 +55,6 @@ async function renderMixedMediaVideo({
     throw new Error("Maximum 20 scenes per render.");
   }
 
-  if (timeline.gaps.length > 0) {
-    throw new Error(
-      "Timeline gaps are not supported yet."
-    );
-  }
 
   if (timeline.endTime > 300) {
     throw new Error("Maximum timeline duration is 300 seconds.");
@@ -94,9 +89,35 @@ async function renderMixedMediaVideo({
     );
   }
 
+
+  // Fill gaps without changing the saved project timeline.
+  const filledScenes = timeline.scenes.map((scene) => ({
+    ...scene,
+  }));
+
+  // If the first scene starts late, display it from 0 seconds.
+  if (filledScenes[0].startTime > 0) {
+    const firstScene = filledScenes[0];
+
+    firstScene.duration += firstScene.startTime;
+    firstScene.startTime = 0;
+  }
+
+  // Extend each scene up to the next scene's start.
+  for (let i = 0; i < filledScenes.length - 1; i++) {
+    const current = filledScenes[i];
+    const next = filledScenes[i + 1];
+
+    const currentEnd = current.startTime + current.duration;
+
+    if (next.startTime > currentEnd) {
+      current.duration = next.startTime - current.startTime;
+    }
+  }
+
   // Keep scenes that begin before the narration ends.
   // Trim scenes that extend beyond the narration.
-  const renderScenes = timeline.scenes
+  const renderScenes = filledScenes
     .filter((scene) => scene.startTime < narrationDuration)
     .map((scene) => ({
       ...scene,

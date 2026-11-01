@@ -629,13 +629,7 @@ app.post(
 
     try {
       const timeline = prepareScenes(scenes);
-
-      if (timeline.gaps.length > 0) {
-        throw new Error(
-          "Scenes must be continuous without timeline gaps."
-        );
-      }
-
+      
       if (timeline.endTime > 300) {
         throw new Error(
           "Maximum timeline duration is 300 seconds."
