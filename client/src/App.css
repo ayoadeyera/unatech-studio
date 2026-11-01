@@ -708,3 +708,37 @@ a {
   opacity: 0.6;
   cursor: not-allowed;
 }
+
+
+.rendered-video-section {
+  margin-top: 24px;
+  padding: 20px;
+  border: 1px solid #34405a;
+  border-radius: 12px;
+  background: #161d2b;
+}
+
+.rendered-video-section h4 {
+  margin: 0 0 12px;
+  color: #4ade80;
+}
+
+.rendered-video-section p {
+  margin-bottom: 16px;
+}
+
+.rendered-video-player {
+  display: block;
+  width: 100%;
+  max-height: 480px;
+  background: #000;
+  border-radius: 10px;
+  margin-bottom: 20px;
+}
+
+.download-video-button {
+  display: inline-block;
+  text-decoration: none;
+  text-align: center;
+  margin-top: 4px;
+}

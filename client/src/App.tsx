@@ -1508,11 +1508,38 @@ function App() {
               )}
 
 
-              {renderedVideoUrl && (
-                <p>Your video is ready. Preview and download controls are coming next.</p>
-              )}
-            </section>
 
+              {renderedVideoUrl && (
+                <div className="rendered-video-section">
+                  <h4>Video Ready!</h4>
+
+                  <p>
+                    Your video has been generated successfully.
+                    Preview it below or download the MP4 file.
+                  </p>
+
+                  <video
+                    key={renderedVideoUrl}
+                    className="rendered-video-player"
+                    src={renderedVideoUrl}
+                    controls
+                    playsInline
+                    preload="metadata"
+                  >
+                    Your browser does not support HTML5 video playback.
+                  </video>
+
+                  <a
+                    className="primary-button download-video-button"
+                    href={renderedVideoUrl}
+                    download
+                  >
+                    Download MP4
+                  </a>
+                </div>
+              )}
+
+            </section>
 
             <button
               className="primary-button"
