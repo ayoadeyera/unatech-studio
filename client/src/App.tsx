@@ -85,7 +85,9 @@ function App() {
   const [audioFile, setAudioFile] = useState<File | null>(null);
   const [uploading, setUploading] = useState(false);
   const [uploadMessage, setUploadMessage] = useState("");
-
+  const [rendering, setRendering] = useState(false);
+  const [renderMessage, setRenderMessage] = useState("");
+  const [renderedVideoUrl, setRenderedVideoUrl] = useState<string | null>(null);
   const [visualFiles, setVisualFiles] = useState<Record<string, File>>({});
   const [uploadingSceneId, setUploadingSceneId] = useState<string | null>(null);
   const [visualUploadMessages, setVisualUploadMessages] = useState<
@@ -602,6 +604,68 @@ function App() {
       );
     } finally {
       setUploading(false);
+    }
+  }
+
+
+  async function generateVideo() {
+    if (!selectedProject || rendering) return;
+
+    if (!selectedProject.narration?.filename) {
+      setRenderMessage("Upload narration before generating a video.");
+      return;
+    }
+
+    const scenes = selectedProject.visualScenes ?? [];
+
+    if (scenes.length < 2) {
+      setRenderMessage("Add at least two visual scenes.");
+      return;
+    }
+
+    if (scenes.some((scene) => !scene.mediaUrl)) {
+      setRenderMessage("Upload media for every visual scene.");
+      return;
+    }
+
+    setRendering(true);
+    setRenderMessage("Generating your video...");
+    setRenderedVideoUrl(null);
+
+    try {
+      const response = await fetch(
+        `${import.meta.env.VITE_API_URL}/api/projects/${selectedProject.id}/render-mixed`,
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            audioFilename: selectedProject.narration.filename,
+            scenes,
+          }),
+        }
+      );
+
+      const data = await response.json();
+
+      if (!response.ok || !data.success || !data.video?.url) {
+        throw new Error(data.message || "Video rendering failed.");
+      }
+
+      setRenderedVideoUrl(
+        `${import.meta.env.VITE_API_URL}${data.video.url}`
+      );
+
+      setRenderMessage("Video generated successfully!");
+    } catch (error) {
+      setRenderMessage(
+        error instanceof Error
+          ? error.message
+          : "Unable to generate the video."
+      );
+    } finally {
+      setRendering(false);
     }
   }
 
@@ -1394,6 +1458,33 @@ function App() {
                 </ul>
               )}
             </section>
+
+
+            <section className="video-export-section">
+              <h3>Video Export</h3>
+
+              <p>
+                Combine your narration and visual scenes into an MP4 video.
+              </p>
+
+              <button
+                className="primary-button"
+                onClick={generateVideo}
+                disabled={rendering}
+              >
+                {rendering ? "Generating Video..." : "Generate Video"}
+              </button>
+
+              {renderMessage && (
+                <p role="status">{renderMessage}</p>
+              )}
+
+              {renderedVideoUrl && (
+                <p>Your video is ready. Preview and download controls are coming next.</p>
+              )}
+            </section>
+
+
             <button
               className="primary-button"
               onClick={() => setView("projects")}
