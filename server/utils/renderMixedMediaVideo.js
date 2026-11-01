@@ -118,14 +118,14 @@ async function renderMixedMediaVideo({
   // Keep scenes that begin before the narration ends.
   // Trim scenes that extend beyond the narration.
   const renderScenes = filledScenes
-    .filter((scene) => scene.startTime < narrationDuration)
-    .map((scene) => ({
-      ...scene,
-      duration: Math.min(
-        scene.endTime,
-        narrationDuration
-      ) - scene.startTime,
-    }));
+  .filter((scene) => scene.startTime < narrationDuration)
+  .map((scene) => ({
+    ...scene,
+    duration: Math.min(
+      scene.startTime + scene.duration,
+      narrationDuration
+    ) - scene.startTime,
+  }));
 
   if (renderScenes.length === 0) {
     throw new Error(
