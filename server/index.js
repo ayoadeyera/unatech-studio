@@ -422,12 +422,16 @@ app.post("/api/projects/:projectId/render", async (req, res) => {
 });
 
 
- // Generate an MP4 from multiple image scenes and narration.
+// Generate an MP4 from multiple image scenes and narration.
 app.post(
   "/api/projects/:projectId/render-multi-images",
   async (req, res) => {
     const { projectId } = req.params;
-    const { audioFilename, scenes } = req.body || {};
+    const {
+      audioFilename,
+      scenes,
+      teachingPauses = [],
+    } = req.body || {};
 
     const audioPattern =
       /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}\.(mp3|wav)$/i;
@@ -455,6 +459,41 @@ app.post(
         message: "Provide between 2 and 20 image scenes.",
       });
     }
+
+
+    if (
+      !Array.isArray(teachingPauses) ||
+      teachingPauses.length > 50 ||
+      teachingPauses.some((pause) =>
+        !pause ||
+        typeof pause !== "object" ||
+        typeof pause.time !== "number" ||
+        !Number.isFinite(pause.time) ||
+        pause.time < 0 ||
+        pause.time > 300 ||
+        typeof pause.duration !== "number" ||
+        !Number.isFinite(pause.duration) ||
+        pause.duration <= 0 ||
+        pause.duration > 30
+      )
+    ) {
+      return res.status(400).json({
+        success: false,
+        message: "Invalid teaching pause data.",
+      });
+    }
+
+    const preparedPauses = teachingPauses
+      .map((pause) => ({
+        time: pause.time,
+        duration: pause.duration,
+        label:
+          typeof pause.label === "string"
+            ? pause.label.slice(0, 100)
+            : "Teaching Pause",
+      }))
+      .sort((a, b) => a.time - b.time);
+
 
     let preparedScenes;
 
@@ -581,7 +620,7 @@ app.post(
 );
 
 
- // Generate an MP4 from images, video clips and narration.
+// Generate an MP4 from images, video clips and narration.
 app.post(
   "/api/projects/:projectId/render-mixed",
   async (req, res) => {
@@ -629,7 +668,7 @@ app.post(
 
     try {
       const timeline = prepareScenes(scenes);
-      
+
       if (timeline.endTime > 300) {
         throw new Error(
           "Maximum timeline duration is 300 seconds."
@@ -706,6 +745,7 @@ app.post(
     try {
       const result = await renderMixedMediaVideo({
         scenes: preparedScenes,
+        teachingPauses: preparedPauses,
         audioPath,
         outputPath,
       });
