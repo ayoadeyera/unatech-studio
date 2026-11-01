@@ -461,41 +461,14 @@ app.post(
     }
 
 
-    if (
-      !Array.isArray(teachingPauses) ||
-      teachingPauses.length > 50 ||
-      teachingPauses.some((pause) =>
-        !pause ||
-        typeof pause !== "object" ||
-        typeof pause.time !== "number" ||
-        !Number.isFinite(pause.time) ||
-        pause.time < 0 ||
-        pause.time > 300 ||
-        typeof pause.duration !== "number" ||
-        !Number.isFinite(pause.duration) ||
-        pause.duration <= 0 ||
-        pause.duration > 30
-      )
-    ) {
+    {
       return res.status(400).json({
         success: false,
         message: "Invalid teaching pause data.",
       });
     }
 
-    const preparedPauses = teachingPauses
-      .map((pause) => ({
-        time: pause.time,
-        duration: pause.duration,
-        label:
-          typeof pause.label === "string"
-            ? pause.label.slice(0, 100)
-            : "Teaching Pause",
-      }))
-      .sort((a, b) => a.time - b.time);
 
-
-    let preparedScenes;
 
     try {
       // Validate scene order, timing and media types.
@@ -625,7 +598,11 @@ app.post(
   "/api/projects/:projectId/render-mixed",
   async (req, res) => {
     const { projectId } = req.params;
-    const { audioFilename, scenes } = req.body || {};
+    const {
+      audioFilename,
+      scenes,
+      teachingPauses = [],
+    } = req.body || {};
 
     const uuidFilename =
       "[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-" +
@@ -663,6 +640,41 @@ app.post(
         message: "Provide between 2 and 20 visual scenes.",
       });
     }
+
+
+    if (
+      !Array.isArray(teachingPauses) ||
+      teachingPauses.length > 50 ||
+      teachingPauses.some((pause) =>
+        !pause ||
+        typeof pause !== "object" ||
+        typeof pause.time !== "number" ||
+        !Number.isFinite(pause.time) ||
+        pause.time < 0 ||
+        pause.time > 300 ||
+        typeof pause.duration !== "number" ||
+        !Number.isFinite(pause.duration) ||
+        pause.duration <= 0 ||
+        pause.duration > 30
+      )
+    ) {
+      return res.status(400).json({
+        success: false,
+        message: "Invalid teaching pause data.",
+      });
+    }
+
+    const preparedPauses = teachingPauses
+      .map((pause) => ({
+        time: pause.time,
+        duration: pause.duration,
+        label:
+          typeof pause.label === "string"
+            ? pause.label.slice(0, 100)
+            : "Teaching Pause",
+      }))
+      .sort((a, b) => a.time - b.time);
+
 
     let preparedScenes;
 
