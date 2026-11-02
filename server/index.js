@@ -759,6 +759,22 @@ app.post(
       });
     }
 
+
+    // Until video-frame freezing is supported,
+    // teaching pauses can only be used with images.
+    if (
+      preparedPauses.length > 0 &&
+      preparedScenes.some((scene) => scene.mediaType === "video")
+    ) {
+      return res.status(400).json({
+        success: false,
+        message:
+          "Teaching pauses with video clips are not supported yet. " +
+          "Please use image scenes for this export.",
+      });
+    }
+
+
     const outputFilename = `${crypto.randomUUID()}.mp4`;
 
     const outputPath = path.join(
