@@ -34,6 +34,7 @@ function prepareScenes(scenes) {
             throw new Error(`Scene ${index + 1} has no uploaded media.`);
         }
 
+
         return {
             id,
             title,
@@ -43,7 +44,13 @@ function prepareScenes(scenes) {
             mediaType,
             mediaUrl,
             mediaPath: scene.mediaPath,
+
+            // Preserve timing metadata for video freeze/resume.
+            sourceOffset: scene.sourceOffset,
+            isTeachingPause: scene.isTeachingPause,
         };
+
+
     }).sort((a, b) => a.startTime - b.startTime);
 
     const gaps = [];
