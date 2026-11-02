@@ -12,12 +12,43 @@ function buildPausedTimeline(scenes, teachingPauses = []) {
     (a, b) => a.time - b.time
   );
 
+
+  // Make a copy so the original project scenes remain unchanged.
+  const filledScenes = [...scenes]
+    .map((scene) => ({ ...scene }))
+    .sort((a, b) => a.startTime - b.startTime);
+
+  // Fill any gap before the first scene.
+  if (filledScenes[0].startTime > 0) {
+    const first = filledScenes[0];
+
+    first.duration += first.startTime;
+    first.startTime = 0;
+  }
+
+  // Extend each scene through any gap before the next scene.
+  for (let i = 0; i < filledScenes.length - 1; i++) {
+    const current = filledScenes[i];
+    const next = filledScenes[i + 1];
+
+    const currentEnd = current.startTime + current.duration;
+
+    if (next.startTime < currentEnd) {
+      throw new Error("Overlapping visual scenes are not supported.");
+    }
+
+    if (next.startTime > currentEnd) {
+      current.duration = next.startTime - current.startTime;
+    }
+  }
+
+
   // Scenes are expressed in original narration time.
   // Each pause adds time to the exported timeline.
   const output = [];
   let elapsedPauseTime = 0;
 
-  for (const scene of scenes) {
+for (const scene of filledScenes) {
     const sceneStart = scene.startTime;
     const sceneEnd = scene.startTime + scene.duration;
 
