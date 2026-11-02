@@ -12,6 +12,7 @@ const { renderImageVideo } = require("./utils/renderVideo");
 const { renderMultiImageVideo } = require("./utils/renderMultiImageVideo");
 const { prepareScenes } = require("./utils/prepareScenes");
 const { renderMixedMediaVideo } = require("./utils/renderMixedMediaVideo");
+const { preparePausedRender } = require("./utils/preparePausedRender");
 const app = express();
 const PORT = process.env.PORT || 5000;
 
@@ -373,6 +374,18 @@ app.post("/api/projects/:projectId/render", async (req, res) => {
     projectId,
     audioFilename
   );
+
+  if (
+    preparedPauses.length > 0 &&
+    preparedScenes.some((scene) => scene.mediaType === "video")
+  ) {
+    return res.status(400).json({
+      success: false,
+      message:
+        "Teaching pauses with video clips are not supported yet. " +
+        "Use images for this export until video-frame freezing is implemented.",
+    });
+  }
 
   const outputFilename = `${crypto.randomUUID()}.mp4`;
   const outputPath = path.join(
@@ -754,13 +767,44 @@ app.post(
       outputFilename
     );
 
+
+    let temporaryAudioPath = null;
+
     try {
+      let renderScenes = preparedScenes;
+      let renderAudioPath = audioPath;
+
+      if (preparedPauses.length > 0) {
+        temporaryAudioPath = path.join(
+          RENDER_OUTPUT_ROOT,
+          projectId,
+          `${crypto.randomUUID()}.wav`
+        );
+
+        const prepared = await preparePausedRender({
+          scenes: preparedScenes,
+          teachingPauses: preparedPauses,
+          audioPath,
+          pausedAudioPath: temporaryAudioPath,
+        });
+
+        if (prepared.scenes.length > 20) {
+          throw new Error(
+            "Too many visual segments after inserting teaching pauses. " +
+            "This rendering mode currently supports 20 segments."
+          );
+        }
+
+        renderScenes = prepared.scenes;
+        renderAudioPath = prepared.audioPath;
+      }
+
       const result = await renderMixedMediaVideo({
-        scenes: preparedScenes,
-        teachingPauses: preparedPauses,
-        audioPath,
+        scenes: renderScenes,
+        audioPath: renderAudioPath,
         outputPath,
       });
+
 
       return res.status(201).json({
         success: true,
