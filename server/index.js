@@ -827,12 +827,23 @@ app.post(
         console.error("Render cleanup failed:", cleanupError);
       }
 
+
+
       return res.status(500).json({
         success: false,
         message:
           "Mixed-media rendering failed. Check the server terminal.",
       });
+    } finally {
+      if (temporaryAudioPath) {
+        await fs.promises.rm(temporaryAudioPath, {
+          force: true,
+        }).catch((error) => {
+          console.error("Temporary audio cleanup failed:", error);
+        });
+      }
     }
+
   }
 );
 
