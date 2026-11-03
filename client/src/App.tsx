@@ -122,6 +122,7 @@ function App() {
   const selectedPauseCardRef = useRef<HTMLLIElement | null>(null);
   const completedPreviewPausesRef = useRef<Set<string>>(new Set());
   const teachingPauseTimerRef = useRef<number | null>(null);
+  const isTeachingPauseActiveRef = useRef(false);
 
   useEffect(() => {
     if (!rendering) return;
@@ -135,9 +136,19 @@ function App() {
 
   useEffect(() => {
     const video = visualVideoRef.current;
+    if (isTeachingPauseActiveRef.current) {
+      video?.pause();
+      return;
+    }
     const audio = audioRef.current;
 
     if (!video || !audio || !activeVisualScene) return;
+
+    if (isTeachingPauseActiveRef.current) {
+      video.pause();
+      return;
+    }
+
     if (activeVisualScene.mediaType !== "video") return;
 
     const scenePosition = Math.max(
@@ -154,7 +165,7 @@ function App() {
     if (
       Number.isFinite(targetPosition) &&
       video.readyState >= 1 &&
-      Math.abs(video.currentTime - targetPosition) > 0.25
+      Math.abs(video.currentTime - targetPosition) > 1
     ) {
       video.currentTime = targetPosition;
     }
@@ -254,6 +265,10 @@ function App() {
       window.clearTimeout(teachingPauseTimerRef.current);
       teachingPauseTimerRef.current = null;
     }
+
+    // Reset the teaching-pause playback lock.
+    isTeachingPauseActiveRef.current = false;
+    
     setSelectedProjectId(projectId);
     setAudioDuration(null);
     setCurrentTime(0);
@@ -317,14 +332,16 @@ function App() {
 
     completedPreviewPausesRef.current.add(pause.id);
 
-    // Stop narration and the synchronized video.
+    // Lock video playback throughout the teaching pause.
+    isTeachingPauseActiveRef.current = true;
+
     audio.pause();
     visualVideoRef.current?.pause();
 
     teachingPauseTimerRef.current = window.setTimeout(() => {
       teachingPauseTimerRef.current = null;
+      isTeachingPauseActiveRef.current = false;
 
-      // Continue narration from the same position.
       audio.play().catch(() => {
         // Browser playback may require user interaction.
       });
@@ -1304,8 +1321,12 @@ function App() {
                               : position
                           );
 
-                          if (!audio.paused) {
-                            video.play().catch(() => { });
+                          if (!audio.paused && !isTeachingPauseActiveRef.current) {
+                            video.play().catch(() => {
+                              // Browser may block playback.
+                            });
+                          } else {
+                            video.pause();
                           }
                         }}
                       />
