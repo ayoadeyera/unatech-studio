@@ -120,6 +120,8 @@ function App() {
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const visualVideoRef = useRef<HTMLVideoElement | null>(null);
   const selectedPauseCardRef = useRef<HTMLLIElement | null>(null);
+  const completedPreviewPausesRef = useRef<Set<string>>(new Set());
+  const teachingPauseTimerRef = useRef<number | null>(null);
 
   useEffect(() => {
     if (!rendering) return;
@@ -246,6 +248,12 @@ function App() {
   }
 
   function openProject(projectId: string) {
+    completedPreviewPausesRef.current.clear();
+
+    if (teachingPauseTimerRef.current !== null) {
+      window.clearTimeout(teachingPauseTimerRef.current);
+      teachingPauseTimerRef.current = null;
+    }
     setSelectedProjectId(projectId);
     setAudioDuration(null);
     setCurrentTime(0);
@@ -288,6 +296,45 @@ function App() {
     audioRef.current.currentTime = newTime;
     setCurrentTime(newTime);
   }
+
+
+  function handleTeachingPausePreview(
+    audio: HTMLAudioElement,
+    position: number
+  ) {
+    if (teachingPauseTimerRef.current !== null) return;
+    if (audio.paused || audio.ended) return;
+
+    const pause = teachingPauses.find(
+      (item) =>
+        !completedPreviewPausesRef.current.has(item.id) &&
+        position >= item.time &&
+        position < item.time + 0.4 &&
+        item.duration > 0
+    );
+
+    if (!pause) return;
+
+    completedPreviewPausesRef.current.add(pause.id);
+
+    // Stop narration and the synchronized video.
+    audio.pause();
+    visualVideoRef.current?.pause();
+
+    teachingPauseTimerRef.current = window.setTimeout(() => {
+      teachingPauseTimerRef.current = null;
+
+      // Continue narration from the same position.
+      audio.play().catch(() => {
+        // Browser playback may require user interaction.
+      });
+    }, pause.duration * 1000);
+  }
+
+
+
+
+
   function addTeachingPause() {
     if (!selectedProjectId || audioDuration === null || audioDuration <= 0) {
       return;
@@ -917,8 +964,10 @@ function App() {
                           );
                         }
                       }}
+
                       onTimeUpdate={(event) => {
-                        const position = event.currentTarget.currentTime;
+                        const audio = event.currentTarget;
+                        const position = audio.currentTime;
 
                         setCurrentTime(position);
 
@@ -928,11 +977,21 @@ function App() {
                             String(position)
                           );
                         }
+
+                        handleTeachingPausePreview(audio, position);
                       }}
+
 
                       onSeeked={(event) => {
                         const position = event.currentTarget.currentTime;
 
+                        // Reset pauses when seeking backwards.
+                        for (const pause of teachingPauses) {
+                          if (position < pause.time - 0.4) {
+                            completedPreviewPausesRef.current.delete(pause.id);
+                          }
+                        }
+
                         setCurrentTime(position);
 
                         if (selectedProjectId) {
@@ -942,6 +1001,7 @@ function App() {
                           );
                         }
                       }}
+
                       onLoadedMetadata={(event) => {
                         const audio = event.currentTarget;
                         const duration = audio.duration;

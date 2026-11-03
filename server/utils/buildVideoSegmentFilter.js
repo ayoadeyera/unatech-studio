@@ -26,9 +26,10 @@ function buildVideoSegmentFilter(scene, index) {
     "fps=30," +
     "format=yuv420p";
 
+
   if (scene.isTeachingPause === true) {
-    // Seek to the pause position and retain one frame.
-    // Extend that frame across the teaching pause.
+    // Extract the frame at the source pause position,
+    // then repeat that exact frame for the pause duration.
     return (
       input +
       `trim=start=${offset},` +
@@ -36,11 +37,12 @@ function buildVideoSegmentFilter(scene, index) {
       normalize + "," +
       "trim=end_frame=1," +
       "setpts=PTS-STARTPTS," +
-      `tpad=stop_mode=clone:stop_duration=${duration},` +
+      "loop=loop=-1:size=1:start=0," +
       `trim=duration=${duration},` +
       `setpts=PTS-STARTPTS${output}`
     );
   }
+
 
   // Resume the clip at its recorded source offset.
   return (
