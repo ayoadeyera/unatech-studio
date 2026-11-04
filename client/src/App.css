@@ -736,6 +736,71 @@ a {
   margin-bottom: 20px;
 }
 
+.narration-segmentation {
+  margin: 20px 0;
+  padding: 18px;
+  border: 1px solid #34405a;
+  border-radius: 10px;
+  background: #111827;
+}
+
+.narration-segmentation h4 {
+  margin-top: 0;
+  color: #c4b5fd;
+}
+
+.narration-segmentation > p {
+  color: #cbd5e1;
+}
+
+.narration-segments-list {
+  display: grid;
+  gap: 12px;
+  padding: 0;
+  list-style: none;
+}
+
+.narration-segment-card {
+  padding: 14px;
+  border: 1px solid #34405a;
+  border-radius: 8px;
+  background: #0b1020;
+}
+
+.narration-segment-times {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 8px;
+  align-items: center;
+  margin-top: 10px;
+}
+
+.narration-segment-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.narration-segment-actions button {
+  padding: 8px 12px;
+  color: #e2e8f0;
+  border: 1px solid #475569;
+  border-radius: 6px;
+  background: #1e293b;
+  cursor: pointer;
+}
+
+.narration-segment-actions button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+@media (max-width: 640px) {
+  .narration-segment-times {
+    grid-template-columns: 1fr;
+  }
+}
+
 .download-video-button {
   display: inline-block;
   text-decoration: none;

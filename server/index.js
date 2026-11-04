@@ -13,6 +13,7 @@ const { renderMultiImageVideo } = require("./utils/renderMultiImageVideo");
 const { prepareScenes } = require("./utils/prepareScenes");
 const { renderMixedMediaVideo } = require("./utils/renderMixedMediaVideo");
 const { preparePausedRender } = require("./utils/preparePausedRender");
+const { detectNarrationSegments } = require("./utils/detectNarrationSegments");
 const app = express();
 const PORT = process.env.PORT || 5000;
 
@@ -268,6 +269,35 @@ app.get(
     });
   }
 );
+
+// Suggest audio activity boundaries from silence; this does not transcribe speech.
+app.post("/api/projects/:projectId/narration/segments", async (req, res, next) => {
+  const { projectId } = req.params;
+  const { audioFilename } = req.body ?? {};
+
+  if (typeof audioFilename !== "string" || !/^[0-9a-f-]{36}\.(mp3|wav)$/i.test(audioFilename)) {
+    return res.status(400).json({ success: false, message: "Invalid narration filename." });
+  }
+
+  const audioPath = path.join(UPLOAD_ROOT, projectId, audioFilename);
+  try {
+    if (!fs.statSync(audioPath).isFile()) {
+      return res.status(404).json({ success: false, message: "Narration file not found." });
+    }
+    const result = await detectNarrationSegments(audioPath);
+    return res.json({
+      success: true,
+      ...result,
+      method: "ffmpeg-silencedetect",
+      message: "Suggested audio activity segments based on silence boundaries. No transcription or semantic analysis was performed.",
+    });
+  } catch (error) {
+    if (error.code === "ENOENT") {
+      return res.status(404).json({ success: false, message: "Narration file not found." });
+    }
+    return next(error);
+  }
+});
 
 // Upload visual media
 app.post(

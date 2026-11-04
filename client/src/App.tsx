@@ -13,6 +13,13 @@ interface TeachingPause {
 
 type VisualMediaType = "image" | "video";
 
+interface NarrationSegment {
+  id: string;
+  startTime: number;
+  endTime: number;
+  duration: number;
+}
+
 interface VisualScene {
   id: string;
   title: string;
@@ -31,6 +38,8 @@ interface Project {
   createdAt: string;
   teachingPauses?: TeachingPause[];
   visualScenes?: VisualScene[];
+  narrationSegments?: NarrationSegment[];
+  appliedNarrationSegmentsKey?: string;
   narration?: {
     filename: string;
     originalName: string;
@@ -85,6 +94,8 @@ function App() {
   const [audioFile, setAudioFile] = useState<File | null>(null);
   const [uploading, setUploading] = useState(false);
   const [uploadMessage, setUploadMessage] = useState("");
+  const [segmenting, setSegmenting] = useState(false);
+  const [segmentationMessage, setSegmentationMessage] = useState("");
   const [rendering, setRendering] = useState(false);
   const [renderSeconds, setRenderSeconds] = useState(0);
   const [renderMessage, setRenderMessage] = useState("");
@@ -113,6 +124,13 @@ function App() {
   const visualScenes = useMemo(
     () => selectedProject?.visualScenes ?? [],
     [selectedProject?.visualScenes]
+  );
+  const narrationSegments = useMemo(
+    () => selectedProject?.narrationSegments ?? [],
+    [selectedProject?.narrationSegments]
+  );
+  const narrationSegmentsKey = JSON.stringify(
+    narrationSegments.map(({ startTime, endTime }) => [startTime, endTime])
   );
 
   const orderedVisualScenes = useMemo(
@@ -549,6 +567,103 @@ function App() {
     setProjects(updatedProjects);
     localStorage.setItem(STORAGE_KEY, JSON.stringify(updatedProjects));
   }
+
+  function saveNarrationSegments(nextSegments: NarrationSegment[]) {
+    if (!selectedProjectId) return;
+    const updatedProjects = projects.map((project) =>
+      project.id === selectedProjectId
+        ? { ...project, narrationSegments: nextSegments, appliedNarrationSegmentsKey: undefined }
+        : project
+    );
+    setProjects(updatedProjects);
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(updatedProjects));
+  }
+
+  function updateNarrationSegment(segmentId: string, field: "startTime" | "endTime", value: number) {
+    if (!Number.isFinite(value) || value < 0 || (audioDuration !== null && value > audioDuration)) return;
+    const segments = narrationSegments.map((segment) => {
+      if (segment.id !== segmentId) return segment;
+      const startTime = field === "startTime" ? value : segment.startTime;
+      const endTime = field === "endTime" ? value : segment.endTime;
+      if (endTime <= startTime) return segment;
+      return { ...segment, startTime, endTime, duration: Number((endTime - startTime).toFixed(3)) };
+    }).sort((a, b) => a.startTime - b.startTime);
+    saveNarrationSegments(segments);
+  }
+
+  function mergeNarrationSegmentWithNext(index: number) {
+    if (index < 0 || index >= narrationSegments.length - 1) return;
+    const current = narrationSegments[index];
+    const next = narrationSegments[index + 1];
+    const merged: NarrationSegment = {
+      id: crypto.randomUUID(),
+      startTime: Math.min(current.startTime, next.startTime),
+      endTime: Math.max(current.endTime, next.endTime),
+      duration: Number((Math.max(current.endTime, next.endTime) - Math.min(current.startTime, next.startTime)).toFixed(3)),
+    };
+    saveNarrationSegments([...narrationSegments.slice(0, index), merged, ...narrationSegments.slice(index + 2)]);
+  }
+
+  function splitNarrationSegment(segmentId: string) {
+    const segment = narrationSegments.find((item) => item.id === segmentId);
+    if (!segment || segment.duration < 0.24) return;
+    const midpoint = Number(((segment.startTime + segment.endTime) / 2).toFixed(3));
+    const split = [
+      { id: crypto.randomUUID(), startTime: segment.startTime, endTime: midpoint, duration: Number((midpoint - segment.startTime).toFixed(3)) },
+      { id: crypto.randomUUID(), startTime: midpoint, endTime: segment.endTime, duration: Number((segment.endTime - midpoint).toFixed(3)) },
+    ];
+    saveNarrationSegments(narrationSegments.flatMap((item) => item.id === segmentId ? split : [item]));
+  }
+
+  async function suggestNarrationSegments() {
+    if (!selectedProjectId || !selectedProject?.narration?.filename || segmenting) return;
+    setSegmenting(true);
+    setSegmentationMessage("Detecting silence boundaries with FFmpeg...");
+    try {
+      const response = await fetch(`${import.meta.env.VITE_API_URL}/api/projects/${selectedProjectId}/narration/segments`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ audioFilename: selectedProject.narration.filename }),
+      });
+      const data = await response.json();
+      if (!response.ok || !data.success || !Array.isArray(data.segments)) {
+        throw new Error(data.message || "Could not detect narration segments.");
+      }
+      const segments: NarrationSegment[] = data.segments.map((segment: Omit<NarrationSegment, "id">) => ({
+        ...segment,
+        id: crypto.randomUUID(),
+      }));
+      saveNarrationSegments(segments);
+      setSegmentationMessage(`Suggested ${segments.length} audio activity segment${segments.length === 1 ? "" : "s"}. Review and edit them before appending scene slots.`);
+    } catch (error) {
+      setSegmentationMessage(error instanceof Error ? error.message : "Segmentation failed.");
+    } finally {
+      setSegmenting(false);
+    }
+  }
+
+  function appendNarrationSegmentsAsScenes() {
+    if (!selectedProjectId || narrationSegments.length === 0 || selectedProject?.appliedNarrationSegmentsKey === narrationSegmentsKey) return;
+    const newScenes: VisualScene[] = narrationSegments.map((segment, index) => ({
+      id: crypto.randomUUID(),
+      title: `Narration Segment ${index + 1}`,
+      startTime: segment.startTime,
+      duration: segment.duration,
+      mediaType: "image",
+      mediaUrl: null,
+      originalName: null,
+    }));
+    const updatedProjects = projects.map((project) => project.id === selectedProjectId
+      ? {
+          ...project,
+          visualScenes: [...(project.visualScenes ?? []), ...newScenes].sort((a, b) => a.startTime - b.startTime),
+          appliedNarrationSegmentsKey: narrationSegmentsKey,
+        }
+      : project);
+    setProjects(updatedProjects);
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(updatedProjects));
+    setSegmentationMessage(`${newScenes.length} new scene slots appended. Existing scenes were preserved; upload visual media and resolve any timeline overlaps before export.`);
+  }
   function formatDuration(seconds: number): string {
     if (!Number.isFinite(seconds) || seconds < 0) {
       return "Unknown";
@@ -716,7 +831,7 @@ function App() {
 
       const updatedProjects = projects.map((project) =>
         project.id === selectedProjectId
-          ? { ...project, narration: data.narration }
+          ? { ...project, narration: data.narration, narrationSegments: [], appliedNarrationSegmentsKey: undefined }
           : project
       );
 
@@ -1118,6 +1233,69 @@ function App() {
                         ).toFixed(2)} MB
                       </p>
                     </div>
+
+                    <section className="narration-segmentation" aria-labelledby="narration-segments-heading">
+                      <h4 id="narration-segments-heading">Automatic Narration Segments</h4>
+                      <p>
+                        FFmpeg suggests audio activity ranges from silence boundaries. These timestamps do not include speech transcription or semantic meaning.
+                      </p>
+                      <button
+                        type="button"
+                        className="primary-button"
+                        disabled={segmenting}
+                        onClick={suggestNarrationSegments}
+                      >
+                        {segmenting ? "Detecting boundaries..." : narrationSegments.length ? "Detect Again" : "Suggest Segments"}
+                      </button>
+                      {segmentationMessage && <p role="status">{segmentationMessage}</p>}
+                      {narrationSegments.length > 0 && (
+                        <>
+                          <p>Review and adjust the suggested boundaries. Applying them appends empty visual scene slots; it never replaces existing scenes.</p>
+                          <ul className="narration-segments-list">
+                            {narrationSegments.map((segment, index) => (
+                              <li className="narration-segment-card" key={segment.id}>
+                                <strong>Segment {index + 1}</strong>
+                                <div className="narration-segment-times">
+                                  <label htmlFor={`segment-start-${segment.id}`}>Start (seconds)</label>
+                                  <input
+                                    id={`segment-start-${segment.id}`}
+                                    type="number"
+                                    min="0"
+                                    max={audioDuration ?? undefined}
+                                    step="0.01"
+                                    value={segment.startTime}
+                                    onChange={(event) => updateNarrationSegment(segment.id, "startTime", Number(event.target.value))}
+                                  />
+                                  <label htmlFor={`segment-end-${segment.id}`}>End (seconds)</label>
+                                  <input
+                                    id={`segment-end-${segment.id}`}
+                                    type="number"
+                                    min={segment.startTime + 0.01}
+                                    max={audioDuration ?? undefined}
+                                    step="0.01"
+                                    value={segment.endTime}
+                                    onChange={(event) => updateNarrationSegment(segment.id, "endTime", Number(event.target.value))}
+                                  />
+                                </div>
+                                <p>Duration: {segment.duration.toFixed(3)}s</p>
+                                <div className="narration-segment-actions">
+                                  <button type="button" disabled={segment.duration < 0.24} onClick={() => splitNarrationSegment(segment.id)}>Split at midpoint</button>
+                                  {index < narrationSegments.length - 1 && <button type="button" onClick={() => mergeNarrationSegmentWithNext(index)}>Merge with next</button>}
+                                </div>
+                              </li>
+                            ))}
+                          </ul>
+                          <button
+                            type="button"
+                            className="primary-button"
+                            disabled={selectedProject?.appliedNarrationSegmentsKey === narrationSegmentsKey}
+                            onClick={appendNarrationSegmentsAsScenes}
+                          >
+                            {selectedProject?.appliedNarrationSegmentsKey === narrationSegmentsKey ? "Scene Slots Appended" : "Append Segments as New Scene Slots"}
+                          </button>
+                        </>
+                      )}
+                    </section>
 
                     {audioDuration !== null && audioDuration > 0 && (
                       <section className="timeline-section">
