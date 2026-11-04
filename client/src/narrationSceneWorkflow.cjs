@@ -34,7 +34,7 @@ function appendNonOverlappingSegmentScenes(segments, existingScenes, idFactory) 
     const alreadyApplied = scenes.some((scene) =>
       scene.narrationSegmentId === segment.id ||
       // Legacy slots lack provenance, so require both the legacy title pattern and exact timing.
-      isMatchingLegacySegmentScene(scene, segment)
+      (scene.narrationSegmentId == null && isMatchingLegacySegmentScene(scene, segment))
     );
 
     if (alreadyApplied) {

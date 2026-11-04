@@ -66,6 +66,24 @@ async function main() {
   assert.deepEqual(reapplied.scenes.find((scene) => scene.id === "generated-slot"), priorGeneratedSlot,
     "manual scene timing, title, and uploaded media must survive reapplication");
 
+  const modernSceneWithDifferentSegmentId = {
+    ...priorGeneratedSlot,
+    title: "Narration Segment 1",
+    startTime: 6,
+    duration: 2,
+    narrationSegmentId: "modern-segment-a",
+  };
+  const differentModernId = appendNonOverlappingSegmentScenes([
+    { id: "modern-segment-b", startTime: 6, endTime: 8, duration: 2 },
+  ], [modernSceneWithDifferentSegmentId], () => "must-not-append");
+  assert.equal(differentModernId.addedCount, 0);
+  assert.equal(differentModernId.duplicateCount, 0,
+    "modern scenes with a different stable segment ID must not match by title and timing");
+  assert.equal(differentModernId.overlapCount, 1,
+    "the different-ID modern scene remains protected by overlap prevention");
+  assert.deepEqual(differentModernId.scenes, [modernSceneWithDifferentSegmentId],
+    "a modern scene matched by neither stable ID nor legacy rules must remain unchanged");
+
   const splitReapply = appendNonOverlappingSegmentScenes([
     { id: "split-a", startTime: 3, endTime: 4, duration: 1 },
     { id: "split-b", startTime: 4, endTime: 5, duration: 1 },
