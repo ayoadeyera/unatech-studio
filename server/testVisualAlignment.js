@@ -94,7 +94,77 @@ async function main() {
   assert.equal(repeatedPlan.skipped[0].reason, "already-assigned");
   assert.deepEqual(repeatedPlan.scenes[0], durationPlan.scenes[0], "reapplication preserves scene timing and media");
 
-  console.log("PASS: visual alignment covers sequential order, manual mapping, missing media, overlap rejection, repeated application, and segment-derived timing.");
+  const phaseFourASlot = {
+    id: "existing-seg-b-slot",
+    title: "Teacher's edited slot title",
+    startTime: 3.25,
+    duration: 2,
+    mediaType: "image",
+    mediaUrl: null,
+    originalName: null,
+    narrationSegmentId: "seg-b",
+    manualNote: "keep this edit",
+  };
+  const filledSlotPlan = planVisualAlignment(
+    segments.slice(1, 2),
+    [{ segmentId: "seg-b", assetId: "video-b" }],
+    assets,
+    [phaseFourASlot],
+    idFactory,
+  );
+  assert.equal(filledSlotPlan.addedScenes.length, 0, "filling a Phase 4A slot does not create another scene");
+  assert.equal(filledSlotPlan.filledSlots.length, 1);
+  assert.deepEqual(filledSlotPlan.scenes[0], {
+    ...phaseFourASlot,
+    mediaType: "video",
+    mediaUrl: "/b.mp4",
+    originalName: "b.mp4",
+    alignmentAssetId: "video-b",
+  }, "filling a slot preserves its ID, timing, title, and other manual edits");
+
+  const repeatedFilledSlot = planVisualAlignment(
+    segments.slice(1, 2),
+    [{ segmentId: "seg-b", assetId: "image-c" }],
+    assets,
+    filledSlotPlan.scenes,
+    idFactory,
+  );
+  assert.equal(repeatedFilledSlot.filledSlots.length, 0);
+  assert.equal(repeatedFilledSlot.skipped[0].reason, "already-assigned");
+  assert.deepEqual(repeatedFilledSlot.scenes[0], filledSlotPlan.scenes[0], "reapplication never replaces populated slot media");
+
+  const manuallyPopulatedSlot = {
+    ...phaseFourASlot,
+    mediaUrl: "/manual-upload.mp4",
+    originalName: "manual-upload.mp4",
+    mediaType: "video",
+  };
+  const populatedSlotPlan = planVisualAlignment(
+    segments.slice(1, 2),
+    [{ segmentId: "seg-b", assetId: "image-c" }],
+    assets,
+    [manuallyPopulatedSlot],
+    idFactory,
+  );
+  assert.equal(populatedSlotPlan.skipped[0].reason, "already-assigned");
+  assert.deepEqual(populatedSlotPlan.scenes[0], manuallyPopulatedSlot, "manual uploads are never overwritten automatically");
+
+  const overlappingSlotPlan = planVisualAlignment(
+    segments.slice(1, 2),
+    [{ segmentId: "seg-b", assetId: "image-c" }],
+    assets,
+    [
+      phaseFourASlot,
+      { id: "manual-overlap", title: "Overlapping manual scene", startTime: 4, duration: 0.5, mediaType: "image", mediaUrl: "/manual.png", originalName: "manual.png" },
+    ],
+    idFactory,
+  );
+  assert.equal(overlappingSlotPlan.filledSlots.length, 0);
+  assert.equal(overlappingSlotPlan.skipped[0].reason, "overlaps-existing-scene");
+  assert.equal(overlappingSlotPlan.skipped[0].conflictingSceneTitle, "Overlapping manual scene");
+  assert.equal(overlappingSlotPlan.scenes[0].mediaUrl, null, "overlap rejection leaves the empty slot untouched");
+
+  console.log("PASS: visual alignment covers sequential/manual mapping, missing media, overlap rejection, repeated application, timing, safe Phase 4A slot filling, and preserving populated/manual scenes.");
 }
 
 main().catch((error) => {

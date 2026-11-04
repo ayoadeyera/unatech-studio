@@ -159,6 +159,8 @@ function App() {
     ),
     [alignmentAssignments, narrationSegments, visualLibrary, visualScenes],
   );
+  const alignmentChangeCount =
+    alignmentPreview.addedScenes.length + alignmentPreview.filledSlots.length;
 
   const orderedVisualScenes = useMemo(
     () => [...visualScenes].sort((a, b) => a.startTime - b.startTime),
@@ -736,7 +738,7 @@ function App() {
   }
 
   function applyVisualAlignment() {
-    if (!selectedProjectId || !selectedProject || alignmentPreview.addedScenes.length === 0) return;
+    if (!selectedProjectId || !selectedProject || alignmentChangeCount === 0) return;
     const result = planVisualAlignment(
       narrationSegments,
       alignmentAssignments,
@@ -744,7 +746,7 @@ function App() {
       selectedProject.visualScenes ?? [],
       () => crypto.randomUUID(),
     );
-    if (result.addedScenes.length === 0) {
+    if (result.addedScenes.length + result.filledSlots.length === 0) {
       setAlignmentMessage("No assignments were applied. Existing scenes were preserved.");
       return;
     }
@@ -754,7 +756,7 @@ function App() {
     setProjects(updatedProjects);
     localStorage.setItem(STORAGE_KEY, JSON.stringify(updatedProjects));
     setAlignmentMessage(
-      `Added ${result.addedScenes.length} scene${result.addedScenes.length === 1 ? "" : "s"}. ${result.skipped.length} assignment${result.skipped.length === 1 ? " was" : "s were"} skipped; existing scenes and media were kept.`,
+      `Filled ${result.filledSlots.length} existing slot${result.filledSlots.length === 1 ? "" : "s"} and added ${result.addedScenes.length} new scene${result.addedScenes.length === 1 ? "" : "s"}. ${result.skipped.length} assignment${result.skipped.length === 1 ? " was" : "s were"} skipped; existing scene details and populated media were kept.`,
     );
   }
 
@@ -769,6 +771,7 @@ function App() {
       case "no-media-selected": return "No media selected";
       case "media-not-found": return "Selected media is no longer available";
       case "already-assigned": return "This segment already has an aligned scene";
+      case "duplicate-segment-slot": return "Multiple scene slots match this segment";
       case "overlaps-existing-scene": return `Overlaps existing scene${conflictingSceneTitle ? ` “${conflictingSceneTitle}”` : ""}`;
       case "scene-limit": return "Export limit of 20 scenes reached";
       case "invalid-timing": return "Invalid segment timing";
@@ -1669,19 +1672,23 @@ function App() {
                         const assignment = alignmentAssignments[index];
                         const asset = visualLibrary.find((item) => item.id === assignment?.assetId);
                         const added = alignmentPreview.addedScenes.find((scene) => scene.narrationSegmentId === segment.id);
+                        const filled = alignmentPreview.filledSlots.find((scene) => scene.narrationSegmentId === segment.id);
                         const skipped = alignmentPreview.skipped.find((item) => item.segmentId === segment.id);
+                        const previewStart = filled?.startTime ?? segment.startTime;
+                        const previewDuration = filled?.duration ?? segment.endTime - segment.startTime;
+                        const previewEnd = previewStart + previewDuration;
                         return (
-                          <li key={segment.id} className={added ? "assignment-ready" : "assignment-skipped"}>
+                          <li key={segment.id} className={added || filled ? "assignment-ready" : "assignment-skipped"}>
                             <strong>Segment {index + 1}</strong>
-                            <span>{formatDuration(segment.startTime)}–{formatDuration(segment.endTime)} · {Math.max(0, segment.endTime - segment.startTime).toFixed(3)} sec</span>
+                            <span>{formatDuration(previewStart)}–{formatDuration(previewEnd)} · {previewDuration.toFixed(3)} sec</span>
                             <span>{asset?.originalName ?? "No media selected"}</span>
-                            <span>{added ? "Ready to add" : alignmentSkipLabel(skipped?.reason ?? "no-media-selected", skipped?.conflictingSceneTitle)}</span>
+                            <span>{filled ? "Ready to fill existing scene slot" : added ? "Ready to add new scene" : alignmentSkipLabel(skipped?.reason ?? "no-media-selected", skipped?.conflictingSceneTitle)}</span>
                           </li>
                         );
                       })}
                     </ul>
                     <p className="alignment-render-note">Short video clips loop to fill their scene duration; the renderer preserves aspect ratio with letterboxing/pillarboxing.</p>
-                    <button type="button" className="primary-button" onClick={applyVisualAlignment} disabled={alignmentPreview.addedScenes.length === 0}>Apply proposed scene assignments ({alignmentPreview.addedScenes.length})</button>
+                    <button type="button" className="primary-button" onClick={applyVisualAlignment} disabled={alignmentChangeCount === 0}>Apply proposed scene assignments ({alignmentChangeCount})</button>
                     {alignmentMessage && <p className="alignment-message" role="status">{alignmentMessage}</p>}
                   </>
                 )}

@@ -39,6 +39,7 @@ export type VisualAssignmentSkipReason =
   | "no-media-selected"
   | "media-not-found"
   | "already-assigned"
+  | "duplicate-segment-slot"
   | "overlaps-existing-scene"
   | "scene-limit";
 
@@ -88,10 +89,12 @@ export function planVisualAlignment<Scene extends AlignmentVisualScene>(
 ): {
   scenes: Array<Scene | AlignmentVisualScene>;
   addedScenes: AlignmentVisualScene[];
+  filledSlots: AlignmentVisualScene[];
   skipped: SkippedVisualAssignment[];
 } {
   const scenes: Array<Scene | AlignmentVisualScene> = [...existingScenes];
   const addedScenes: AlignmentVisualScene[] = [];
+  const filledSlots: AlignmentVisualScene[] = [];
   const skipped: SkippedVisualAssignment[] = [];
   const segmentsById = new Map(segments.map((segment) => [segment.id, segment]));
   const assetsById = new Map(assets.map((asset) => [asset.id, asset]));
@@ -126,8 +129,58 @@ export function planVisualAlignment<Scene extends AlignmentVisualScene>(
       continue;
     }
 
-    if (scenes.some((scene) => scene.narrationSegmentId === segment.id)) {
+    const matchingSlots = scenes.filter((scene) => scene.narrationSegmentId === segment.id);
+    if (matchingSlots.length > 1) {
+      skipped.push({ ...assignment, reason: "duplicate-segment-slot" });
+      continue;
+    }
+    const matchingSlot = matchingSlots[0];
+    if (matchingSlot?.mediaUrl) {
       skipped.push({ ...assignment, reason: "already-assigned" });
+      continue;
+    }
+
+    if (matchingSlot) {
+      const slotEnd = matchingSlot.startTime + matchingSlot.duration;
+      if (
+        !Number.isFinite(matchingSlot.startTime) ||
+        matchingSlot.startTime < 0 ||
+        !Number.isFinite(matchingSlot.duration) ||
+        matchingSlot.duration <= 0 ||
+        !Number.isFinite(slotEnd)
+      ) {
+        skipped.push({ ...assignment, reason: "invalid-timing" });
+        continue;
+      }
+
+      const conflict = scenes.find((scene) =>
+        scene.id !== matchingSlot.id &&
+        rangesOverlap(
+          matchingSlot.startTime,
+          slotEnd,
+          scene.startTime,
+          scene.startTime + scene.duration,
+        )
+      );
+      if (conflict) {
+        skipped.push({
+          ...assignment,
+          reason: "overlaps-existing-scene",
+          conflictingSceneTitle: conflict.title,
+        });
+        continue;
+      }
+
+      const filled: AlignmentVisualScene = {
+        ...matchingSlot,
+        mediaType: asset.mediaType,
+        mediaUrl: asset.url,
+        originalName: asset.originalName,
+        alignmentAssetId: asset.id,
+      };
+      const slotIndex = scenes.findIndex((scene) => scene.id === matchingSlot.id);
+      scenes[slotIndex] = filled;
+      filledSlots.push(filled);
       continue;
     }
 
@@ -169,5 +222,5 @@ export function planVisualAlignment<Scene extends AlignmentVisualScene>(
   }
 
   scenes.sort((first, second) => first.startTime - second.startTime);
-  return { scenes, addedScenes, skipped };
+  return { scenes, addedScenes, filledSlots, skipped };
 }
