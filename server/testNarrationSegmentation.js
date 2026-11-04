@@ -71,8 +71,75 @@ async function main() {
     { id: "split-b", startTime: 4, endTime: 5, duration: 1 },
   ], firstApply.scenes, () => "split-generated-id");
   assert.equal(splitReapply.addedCount, 0, "split suggestions cannot overlap an existing full-range slot");
-  assert.equal(splitReapply.overlapCount, 1);
-  assert.equal(splitReapply.duplicateCount, 1, "the matching legacy Phase 4A slot is treated as already applied");
+  assert.equal(splitReapply.overlapCount, 2);
+  assert.equal(splitReapply.duplicateCount, 0, "a numbered legacy title with different timing is not a duplicate match");
+
+  const legacySceneOne = {
+    id: "legacy-one",
+    title: "Narration Segment 1",
+    startTime: 0,
+    duration: 1.25,
+    mediaType: "video",
+    mediaUrl: "/uploads/legacy-one.mp4",
+    originalName: "legacy-one.mp4",
+  };
+  const legacySceneTwo = {
+    id: "legacy-two",
+    title: "Narration Segment 2",
+    startTime: 3,
+    duration: 1.5,
+    mediaType: "image",
+    mediaUrl: "/uploads/legacy-two.png",
+    originalName: "legacy-two.png",
+  };
+
+  const reorderedAfterTimingEdits = appendNonOverlappingSegmentScenes([
+    { id: "reordered-b", startTime: 10, endTime: 11.5, duration: 1.5 },
+    { id: "reordered-a", startTime: 20, endTime: 21.25, duration: 1.25 },
+  ], [legacySceneOne, legacySceneTwo], () => "reordered-edited-slot");
+  assert.equal(reorderedAfterTimingEdits.addedCount, 2,
+    "reordered segments with edited timing must not be mistaken for old slots by title position");
+  assert.equal(reorderedAfterTimingEdits.duplicateCount, 0);
+  assert.deepEqual(reorderedAfterTimingEdits.scenes.filter((scene) => scene.id.startsWith("legacy-")),
+    [legacySceneOne, legacySceneTwo], "reapplying reordered segments must preserve prior legacy scene edits and media");
+
+  const reorderedLegacy = appendNonOverlappingSegmentScenes([
+    { id: "reordered-b", startTime: 3, endTime: 4.5, duration: 1.5 },
+    { id: "reordered-a", startTime: 0, endTime: 1.25, duration: 1.25 },
+  ], [legacySceneOne, legacySceneTwo], () => "unexpected-reordered-slot");
+  assert.equal(reorderedLegacy.addedCount, 0);
+  assert.equal(reorderedLegacy.duplicateCount, 2,
+    "reordered suggestions match legacy slots by their numbered title and timing, independent of array index");
+  assert.deepEqual(reorderedLegacy.scenes, [legacySceneOne, legacySceneTwo],
+    "reordered matching must preserve legacy media and manual scene fields");
+
+  const mergedLegacy = appendNonOverlappingSegmentScenes([
+    { id: "merged", startTime: 0, endTime: 4, duration: 4 },
+  ], [legacySceneOne, legacySceneTwo], () => "unexpected-merged-slot");
+  assert.equal(mergedLegacy.addedCount, 0);
+  assert.equal(mergedLegacy.duplicateCount, 0,
+    "a numbered legacy title with a different merged duration must not count as already applied");
+  assert.equal(mergedLegacy.overlapCount, 1, "the merged range is safely rejected because it overlaps existing scenes");
+  assert.deepEqual(mergedLegacy.scenes, [legacySceneOne, legacySceneTwo],
+    "merge handling must not alter legacy scene timing or media");
+
+  const splitLegacyScene = {
+    ...legacySceneOne,
+    id: "legacy-full-range",
+    duration: 4,
+    mediaUrl: "/uploads/full-range.mp4",
+    originalName: "full-range.mp4",
+  };
+  const splitLegacy = appendNonOverlappingSegmentScenes([
+    { id: "split-left", startTime: 0, endTime: 2, duration: 2 },
+    { id: "split-right", startTime: 2, endTime: 4, duration: 2 },
+  ], [splitLegacyScene], () => "unexpected-split-slot");
+  assert.equal(splitLegacy.addedCount, 0);
+  assert.equal(splitLegacy.duplicateCount, 0,
+    "neither split range matches the timing of the prior full-range legacy slot");
+  assert.equal(splitLegacy.overlapCount, 2, "both split ranges are rejected instead of overlapping the prior scene");
+  assert.deepEqual(splitLegacy.scenes, [splitLegacyScene],
+    "split handling must preserve existing uploaded media and scene edits");
 
   const tempDirectory = await fs.mkdtemp(path.join(os.tmpdir(), "unatech-segmentation-"));
   const wavPath = path.join(tempDirectory, "known-intervals.wav");

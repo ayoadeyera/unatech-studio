@@ -15,6 +15,14 @@ function segmentCanBePlaced(segments, segmentId, startTime, endTime) {
   ));
 }
 
+function isMatchingLegacySegmentScene(scene, segment) {
+  const isLegacyTitle = /^Narration Segment \d+$/.test(scene.title ?? "");
+  const timingMatches =
+    Math.abs(scene.startTime - segment.startTime) <= 0.001 &&
+    Math.abs(scene.duration - segment.duration) <= 0.001;
+  return isLegacyTitle && timingMatches;
+}
+
 function appendNonOverlappingSegmentScenes(segments, existingScenes, idFactory) {
   const scenes = [...existingScenes];
   const addedScenes = [];
@@ -25,8 +33,8 @@ function appendNonOverlappingSegmentScenes(segments, existingScenes, idFactory) 
     const endTime = segment.startTime + segment.duration;
     const alreadyApplied = scenes.some((scene) =>
       scene.narrationSegmentId === segment.id ||
-      // Slots created by Phase 4A before provenance was added used this title.
-      scene.title === `Narration Segment ${index + 1}`
+      // Legacy slots lack provenance, so require both the legacy title pattern and exact timing.
+      isMatchingLegacySegmentScene(scene, segment)
     );
 
     if (alreadyApplied) {
