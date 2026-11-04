@@ -1,5 +1,5 @@
 
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import "./App.css";
 
 type Preset = "Focused Teaching" | "Entertaining Presenter" | "High-Energy Explainer";
@@ -106,16 +106,26 @@ function App() {
 
 
 
-  const teachingPauses = selectedProject?.teachingPauses ?? [];
-  const visualScenes = selectedProject?.visualScenes ?? [];
-
-  const orderedVisualScenes = [...visualScenes].sort(
-    (a, b) => a.startTime - b.startTime
+  const teachingPauses = useMemo(
+    () => selectedProject?.teachingPauses ?? [],
+    [selectedProject?.teachingPauses]
   );
-  const activeVisualScene =
-    [...orderedVisualScenes].reverse().find(
-      (scene) => currentTime >= scene.startTime
-    ) ?? orderedVisualScenes[0] ?? null;
+  const visualScenes = useMemo(
+    () => selectedProject?.visualScenes ?? [],
+    [selectedProject?.visualScenes]
+  );
+
+  const orderedVisualScenes = useMemo(
+    () => [...visualScenes].sort((a, b) => a.startTime - b.startTime),
+    [visualScenes]
+  );
+  const activeVisualScene = useMemo(
+    () =>
+      [...orderedVisualScenes].reverse().find(
+        (scene) => currentTime >= scene.startTime
+      ) ?? orderedVisualScenes[0] ?? null,
+    [currentTime, orderedVisualScenes]
+  );
 
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const visualVideoRef = useRef<HTMLVideoElement | null>(null);
@@ -123,6 +133,7 @@ function App() {
   const completedPreviewPausesRef = useRef<Set<string>>(new Set());
   const teachingPauseTimerRef = useRef<number | null>(null);
   const isTeachingPauseActiveRef = useRef(false);
+  const lastPreviewPositionRef = useRef(0);
 
   useEffect(() => {
     if (!rendering) return;
@@ -184,9 +195,7 @@ function App() {
   }, [
     currentTime,
     previewSyncRevision,
-    activeVisualScene?.id,
-    activeVisualScene?.mediaUrl,
-    activeVisualScene?.startTime,
+    activeVisualScene,
   ]);
 
   useEffect(() => {
@@ -264,6 +273,7 @@ function App() {
 
     // Reset the teaching-pause playback lock.
     isTeachingPauseActiveRef.current = false;
+    lastPreviewPositionRef.current = 0;
     
     setSelectedProjectId(projectId);
     setAudioDuration(null);
@@ -309,18 +319,22 @@ function App() {
   }
 
 
-  function handleTeachingPausePreview(
+  const handleTeachingPausePreview = useCallback((
     audio: HTMLAudioElement,
     position: number
-  ) {
+  ) => {
     if (teachingPauseTimerRef.current !== null) return;
+
+    const previousPosition = lastPreviewPositionRef.current;
+    lastPreviewPositionRef.current = position;
+
     if (audio.paused || audio.ended) return;
 
     const pause = teachingPauses.find(
       (item) =>
         !completedPreviewPausesRef.current.has(item.id) &&
+        previousPosition <= item.time &&
         position >= item.time &&
-        position < item.time + 0.4 &&
         item.duration > 0
     );
 
@@ -341,7 +355,51 @@ function App() {
         // Browser playback may require user interaction.
       });
     }, pause.duration * 1000);
-  }
+  }, [teachingPauses]);
+
+  useEffect(() => {
+    const audio = audioRef.current;
+    if (!audio) return;
+
+    let frameId: number | null = null;
+
+    const stopMonitoring = () => {
+      if (frameId !== null) {
+        window.cancelAnimationFrame(frameId);
+        frameId = null;
+      }
+    };
+
+    const monitorPlayback = () => {
+      frameId = null;
+      if (audio.paused || audio.ended) return;
+
+      handleTeachingPausePreview(audio, audio.currentTime);
+
+      if (!audio.paused && !audio.ended) {
+        frameId = window.requestAnimationFrame(monitorPlayback);
+      }
+    };
+
+    const startMonitoring = () => {
+      if (frameId === null) {
+        frameId = window.requestAnimationFrame(monitorPlayback);
+      }
+    };
+
+    audio.addEventListener("play", startMonitoring);
+    audio.addEventListener("pause", stopMonitoring);
+    audio.addEventListener("ended", stopMonitoring);
+
+    if (!audio.paused && !audio.ended) startMonitoring();
+
+    return () => {
+      stopMonitoring();
+      audio.removeEventListener("play", startMonitoring);
+      audio.removeEventListener("pause", stopMonitoring);
+      audio.removeEventListener("ended", stopMonitoring);
+    };
+  }, [handleTeachingPausePreview, selectedProject?.narration?.url, view]);
 
 
 
@@ -948,6 +1006,7 @@ function App() {
 
                         audio.currentTime = 0;
                         setCurrentTime(0);
+                        lastPreviewPositionRef.current = 0;
 
                         if (selectedProjectId) {
                           localStorage.setItem(
@@ -976,6 +1035,7 @@ function App() {
 
                       onSeeked={(event) => {
                         const position = event.currentTarget.currentTime;
+                        lastPreviewPositionRef.current = position;
 
                         // Reset pauses when seeking backwards.
                         for (const pause of teachingPauses) {
@@ -1017,6 +1077,7 @@ function App() {
                             : 0;
 
                         audio.currentTime = restoredPosition;
+                        lastPreviewPositionRef.current = restoredPosition;
                         setCurrentTime(restoredPosition);
 
                         localStorage.setItem(
