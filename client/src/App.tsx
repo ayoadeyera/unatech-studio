@@ -1,6 +1,6 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { appendNonOverlappingSegmentScenes, segmentCanBePlaced } from "./narrationSceneWorkflow.cjs";
+import { appendNonOverlappingSegmentScenes, segmentCanBePlaced } from "./narrationSceneWorkflow";
 import "./App.css";
 
 type Preset = "Focused Teaching" | "Entertaining Presenter" | "High-Energy Explainer";

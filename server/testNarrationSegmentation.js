@@ -9,14 +9,14 @@ const {
   parseSilenceIntervals,
   buildSpeechActivitySegments,
 } = require("./utils/detectNarrationSegments");
-const {
-  appendNonOverlappingSegmentScenes,
-  segmentCanBePlaced,
-} = require("../client/src/narrationSceneWorkflow.cjs");
-
 const execFileAsync = promisify(execFile);
 
 async function main() {
+  const {
+    appendNonOverlappingSegmentScenes,
+    segmentCanBePlaced,
+  } = await import("../client/src/narrationSceneWorkflow.ts");
+
   const regressionScene = {
     id: "manual-scene",
     title: "Manually Edited Introduction",
