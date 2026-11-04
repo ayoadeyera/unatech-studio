@@ -1029,7 +1029,6 @@ function App() {
                           );
                         }
 
-                        handleTeachingPausePreview(audio, position);
                       }}
 
 
