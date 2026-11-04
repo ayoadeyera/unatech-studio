@@ -98,6 +98,7 @@ function App() {
   const [audioDuration, setAudioDuration] = useState<number | null>(null);
 
   const [currentTime, setCurrentTime] = useState(0);
+  const [previewSyncRevision, setPreviewSyncRevision] = useState(0);
   const [selectedPauseId, setSelectedPauseId] = useState<string | null>(null);
   const selectedProject = projects.find(
     (project) => project.id === selectedProjectId
@@ -108,14 +109,13 @@ function App() {
   const teachingPauses = selectedProject?.teachingPauses ?? [];
   const visualScenes = selectedProject?.visualScenes ?? [];
 
+  const orderedVisualScenes = [...visualScenes].sort(
+    (a, b) => a.startTime - b.startTime
+  );
   const activeVisualScene =
-    [...visualScenes]
-      .sort((a, b) => b.startTime - a.startTime)
-      .find(
-        (scene) =>
-          currentTime >= scene.startTime &&
-          currentTime < scene.startTime + scene.duration
-      ) ?? null;
+    [...orderedVisualScenes].reverse().find(
+      (scene) => currentTime >= scene.startTime
+    ) ?? orderedVisualScenes[0] ?? null;
 
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const visualVideoRef = useRef<HTMLVideoElement | null>(null);
@@ -136,20 +136,14 @@ function App() {
 
   useEffect(() => {
     const video = visualVideoRef.current;
-    if (isTeachingPauseActiveRef.current) {
-      video?.pause();
-      return;
-    }
     const audio = audioRef.current;
 
     if (!video || !audio || !activeVisualScene) return;
 
-    if (isTeachingPauseActiveRef.current) {
+    if (activeVisualScene.mediaType !== "video") {
       video.pause();
       return;
     }
-
-    if (activeVisualScene.mediaType !== "video") return;
 
     const scenePosition = Math.max(
       0,
@@ -165,12 +159,13 @@ function App() {
     if (
       Number.isFinite(targetPosition) &&
       video.readyState >= 1 &&
-      Math.abs(video.currentTime - targetPosition) > 1
+      Math.abs(video.currentTime - targetPosition) > 0.35
     ) {
       video.currentTime = targetPosition;
     }
 
     if (
+      isTeachingPauseActiveRef.current ||
       audio.paused ||
       audio.ended ||
       (Number.isFinite(videoDuration) &&
@@ -188,6 +183,7 @@ function App() {
     }
   }, [
     currentTime,
+    previewSyncRevision,
     activeVisualScene?.id,
     activeVisualScene?.mediaUrl,
     activeVisualScene?.startTime,
@@ -336,7 +332,6 @@ function App() {
     isTeachingPauseActiveRef.current = true;
 
     audio.pause();
-    visualVideoRef.current?.pause();
 
     teachingPauseTimerRef.current = window.setTimeout(() => {
       teachingPauseTimerRef.current = null;
@@ -940,33 +935,13 @@ function App() {
                       ref={audioRef}
                       controls
                       preload="metadata"
-                      onPause={() => {
-                        visualVideoRef.current?.pause();
+                      onPause={(event) => {
+                        setCurrentTime(event.currentTarget.currentTime);
+                        setPreviewSyncRevision((revision) => revision + 1);
                       }}
-                      onPlay={() => {
-                        const video = visualVideoRef.current;
-
-                        if (!video || !activeVisualScene) return;
-
-                        if (activeVisualScene.mediaType !== "video") return;
-
-                        const scenePosition = Math.max(
-                          0,
-                          audioRef.current!.currentTime - activeVisualScene.startTime
-                        );
-
-                        if (
-                          Number.isFinite(video.duration) &&
-                          scenePosition >= video.duration
-                        ) {
-                          return;
-                        }
-
-                        video.playbackRate = audioRef.current?.playbackRate ?? 1;
-
-                        video.play().catch(() => {
-                          // Browser may block playback.
-                        });
+                      onPlay={(event) => {
+                        setCurrentTime(event.currentTarget.currentTime);
+                        setPreviewSyncRevision((revision) => revision + 1);
                       }}
                       onEnded={(event) => {
                         const audio = event.currentTarget;
@@ -1303,31 +1278,11 @@ function App() {
                         muted
                         playsInline
                         preload="auto"
-                        onLoadedMetadata={(event) => {
-                          const video = event.currentTarget;
+                        onLoadedMetadata={() => {
                           const audio = audioRef.current;
-
                           if (!audio) return;
-
-                          const position = Math.max(
-                            0,
-                            audio.currentTime - activeVisualScene.startTime
-                          );
-
-                          video.currentTime = Math.min(
-                            position,
-                            Number.isFinite(video.duration)
-                              ? video.duration
-                              : position
-                          );
-
-                          if (!audio.paused && !isTeachingPauseActiveRef.current) {
-                            video.play().catch(() => {
-                              // Browser may block playback.
-                            });
-                          } else {
-                            video.pause();
-                          }
+                          setCurrentTime(audio.currentTime);
+                          setPreviewSyncRevision((revision) => revision + 1);
                         }}
                       />
                     )

@@ -36,8 +36,8 @@ function buildVideoSegmentFilter(scene, index) {
       "setpts=PTS-STARTPTS," +
       normalize + "," +
       "trim=end_frame=1," +
-      "setpts=PTS-STARTPTS," +
-      "loop=loop=-1:size=1:start=0," +
+      `tpad=stop_mode=clone:stop_duration=${duration},` +
+      "setpts=N/(30*TB)," +
       `trim=duration=${duration},` +
       `setpts=PTS-STARTPTS${output}`
     );
