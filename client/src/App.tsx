@@ -1,6 +1,12 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { appendNonOverlappingSegmentScenes, segmentCanBePlaced } from "./narrationSceneWorkflow";
+import {
+  createManualVisualAssignments,
+  createSequentialVisualAssignments,
+  planVisualAlignment,
+  type AlignmentMediaAsset,
+} from "./visualAlignment";
 import "./App.css";
 
 type Preset = "Focused Teaching" | "Entertaining Presenter" | "High-Energy Explainer";
@@ -30,6 +36,7 @@ interface VisualScene {
   mediaUrl: string | null;
   originalName: string | null;
   narrationSegmentId?: string;
+  alignmentAssetId?: string;
 }
 
 interface Project {
@@ -106,6 +113,12 @@ function App() {
   const [visualUploadMessages, setVisualUploadMessages] = useState<
     Record<string, string>
   >({});
+  const [visualLibrary, setVisualLibrary] = useState<AlignmentMediaAsset[]>([]);
+  const [visualLibraryMessage, setVisualLibraryMessage] = useState("");
+  const [alignmentMode, setAlignmentMode] = useState<"sequential" | "manual">("sequential");
+  const [selectedAlignmentAssets, setSelectedAlignmentAssets] = useState<string[]>([]);
+  const [manualAlignmentAssets, setManualAlignmentAssets] = useState<Record<string, string>>({});
+  const [alignmentMessage, setAlignmentMessage] = useState("");
 
   const [audioDuration, setAudioDuration] = useState<number | null>(null);
 
@@ -130,6 +143,22 @@ function App() {
     () => selectedProject?.narrationSegments ?? [],
     [selectedProject?.narrationSegments]
   );
+  const alignmentAssignments = useMemo(
+    () => alignmentMode === "sequential"
+      ? createSequentialVisualAssignments(narrationSegments, selectedAlignmentAssets)
+      : createManualVisualAssignments(narrationSegments, manualAlignmentAssets),
+    [alignmentMode, manualAlignmentAssets, narrationSegments, selectedAlignmentAssets],
+  );
+  const alignmentPreview = useMemo(
+    () => planVisualAlignment(
+      narrationSegments,
+      alignmentAssignments,
+      visualLibrary,
+      visualScenes,
+      (segmentId) => `preview-${segmentId}`,
+    ),
+    [alignmentAssignments, narrationSegments, visualLibrary, visualScenes],
+  );
 
   const orderedVisualScenes = useMemo(
     () => [...visualScenes].sort((a, b) => a.startTime - b.startTime),
@@ -150,6 +179,42 @@ function App() {
   const teachingPauseTimerRef = useRef<number | null>(null);
   const isTeachingPauseActiveRef = useRef(false);
   const lastPreviewPositionRef = useRef(0);
+
+  useEffect(() => {
+    if (!selectedProjectId) {
+      setVisualLibrary([]);
+      return;
+    }
+    let active = true;
+    setVisualLibraryMessage("Loading project media…");
+    fetch(`${import.meta.env.VITE_API_URL}/api/projects/${selectedProjectId}/visuals`)
+      .then(async (response) => {
+        const data = await response.json();
+        if (!response.ok || !data.success || !Array.isArray(data.media)) {
+          throw new Error(data.message || "Could not load project media.");
+        }
+        if (!active) return;
+        setVisualLibrary(data.media);
+        setVisualLibraryMessage(data.media.length ? "" : "No visual uploads in this project yet.");
+      })
+      .catch((error: unknown) => {
+        if (!active) return;
+        setVisualLibraryMessage(error instanceof Error ? error.message : "Could not load project media.");
+      });
+    return () => { active = false; };
+  }, [selectedProjectId]);
+
+  const refreshVisualLibrary = useCallback(async (projectId: string) => {
+    try {
+      const response = await fetch(`${import.meta.env.VITE_API_URL}/api/projects/${projectId}/visuals`);
+      const data = await response.json();
+      if (!response.ok || !data.success || !Array.isArray(data.media)) throw new Error("Could not refresh project media.");
+      setVisualLibrary(data.media);
+      setVisualLibraryMessage(data.media.length ? "" : "No visual uploads in this project yet.");
+    } catch (error) {
+      setVisualLibraryMessage(error instanceof Error ? error.message : "Could not refresh project media.");
+    }
+  }, []);
 
   useEffect(() => {
     if (!rendering) return;
@@ -179,8 +244,8 @@ function App() {
 
     const videoDuration = video.duration;
 
-    const targetPosition = Number.isFinite(videoDuration)
-      ? Math.min(scenePosition, Math.max(0, videoDuration - 0.05))
+    const targetPosition = Number.isFinite(videoDuration) && videoDuration > 0
+      ? scenePosition % videoDuration
       : scenePosition;
 
     if (
@@ -194,9 +259,7 @@ function App() {
     if (
       isTeachingPauseActiveRef.current ||
       audio.paused ||
-      audio.ended ||
-      (Number.isFinite(videoDuration) &&
-        scenePosition >= videoDuration)
+      audio.ended
     ) {
       video.pause();
     } else {
@@ -671,6 +734,48 @@ function App() {
       `${result.addedCount} new scene slot(s) appended; ${result.duplicateCount} existing slot(s) were kept and ${result.overlapCount} overlapping segment(s) were skipped. Existing media and manual edits were preserved. Upload media to new slots before export.`,
     );
   }
+
+  function applyVisualAlignment() {
+    if (!selectedProjectId || !selectedProject || alignmentPreview.addedScenes.length === 0) return;
+    const result = planVisualAlignment(
+      narrationSegments,
+      alignmentAssignments,
+      visualLibrary,
+      selectedProject.visualScenes ?? [],
+      () => crypto.randomUUID(),
+    );
+    if (result.addedScenes.length === 0) {
+      setAlignmentMessage("No assignments were applied. Existing scenes were preserved.");
+      return;
+    }
+    const updatedProjects = projects.map((project) => project.id === selectedProjectId
+      ? { ...project, visualScenes: result.scenes as VisualScene[] }
+      : project);
+    setProjects(updatedProjects);
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(updatedProjects));
+    setAlignmentMessage(
+      `Added ${result.addedScenes.length} scene${result.addedScenes.length === 1 ? "" : "s"}. ${result.skipped.length} assignment${result.skipped.length === 1 ? " was" : "s were"} skipped; existing scenes and media were kept.`,
+    );
+  }
+
+  function toggleAlignmentAsset(assetId: string) {
+    setSelectedAlignmentAssets((current) => current.includes(assetId)
+      ? current.filter((id) => id !== assetId)
+      : [...current, assetId]);
+  }
+
+  function alignmentSkipLabel(reason: string, conflictingSceneTitle?: string) {
+    switch (reason) {
+      case "no-media-selected": return "No media selected";
+      case "media-not-found": return "Selected media is no longer available";
+      case "already-assigned": return "This segment already has an aligned scene";
+      case "overlaps-existing-scene": return `Overlaps existing scene${conflictingSceneTitle ? ` “${conflictingSceneTitle}”` : ""}`;
+      case "scene-limit": return "Export limit of 20 scenes reached";
+      case "invalid-timing": return "Invalid segment timing";
+      default: return "Segment could not be placed";
+    }
+  }
+
   function formatDuration(seconds: number): string {
     if (!Number.isFinite(seconds) || seconds < 0) {
       return "Unknown";
@@ -778,6 +883,7 @@ function App() {
 
       setProjects(updatedProjects);
       localStorage.setItem(STORAGE_KEY, JSON.stringify(updatedProjects));
+      await refreshVisualLibrary(projectId);
 
       setVisualFiles((previous) => {
         const updated = { ...previous };
@@ -1500,6 +1606,86 @@ function App() {
                 )}
             </div>
             <section className="visual-scenes-section">
+              <div className="alignment-panel">
+                <div className="visual-scenes-header">
+                  <div>
+                    <h3>Project Visual Library</h3>
+                    <p>Choose existing uploads from this project, then preview their timestamped scene assignments.</p>
+                  </div>
+                  <button type="button" className="secondary-button" onClick={() => selectedProjectId && void refreshVisualLibrary(selectedProjectId)}>
+                    Refresh library
+                  </button>
+                </div>
+                {visualLibraryMessage && <p className="alignment-message" role="status">{visualLibraryMessage}</p>}
+                {visualLibrary.length > 0 && (
+                  <ul className="alignment-media-list">
+                    {visualLibrary.map((asset) => (
+                      <li key={asset.id} className="alignment-media-card">
+                        {asset.mediaType === "image" ? (
+                          <img src={`${import.meta.env.VITE_API_URL}${asset.url}`} alt="" />
+                        ) : (
+                          <video src={`${import.meta.env.VITE_API_URL}${asset.url}`} muted playsInline preload="metadata" />
+                        )}
+                        <label>
+                          <input
+                            type="checkbox"
+                            checked={selectedAlignmentAssets.includes(asset.id)}
+                            onChange={() => toggleAlignmentAsset(asset.id)}
+                          />
+                          {alignmentMode === "sequential" && selectedAlignmentAssets.includes(asset.id)
+                            ? `${selectedAlignmentAssets.indexOf(asset.id) + 1}. `
+                            : ""}{asset.originalName}
+                        </label>
+                        <small>{asset.mediaType} · {(asset.size / (1024 * 1024)).toFixed(1)} MB</small>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+                <fieldset className="alignment-mode">
+                  <legend>Placement mode</legend>
+                  <label><input type="radio" name="alignment-mode" checked={alignmentMode === "sequential"} onChange={() => setAlignmentMode("sequential")} /> Sequential (selected order)</label>
+                  <label><input type="radio" name="alignment-mode" checked={alignmentMode === "manual"} onChange={() => setAlignmentMode("manual")} /> Manual Mapping (choose per segment)</label>
+                </fieldset>
+                {narrationSegments.length === 0 ? (
+                  <p>Create or generate narration segments in Audio Studio before aligning visuals.</p>
+                ) : (
+                  <>
+                    {alignmentMode === "manual" && (
+                      <div className="alignment-mappings">
+                        {narrationSegments.map((segment, index) => (
+                          <label key={segment.id}>
+                            Segment {index + 1} · {formatDuration(segment.startTime)}–{formatDuration(segment.endTime)}
+                            <select value={manualAlignmentAssets[segment.id] ?? ""} onChange={(event) => setManualAlignmentAssets((current) => ({ ...current, [segment.id]: event.target.value }))}>
+                              <option value="">No media</option>
+                              {visualLibrary.map((asset) => <option key={asset.id} value={asset.id}>{asset.originalName} ({asset.mediaType})</option>)}
+                            </select>
+                          </label>
+                        ))}
+                      </div>
+                    )}
+                    <h4>Assignment preview</h4>
+                    <ul className="alignment-preview-list">
+                      {narrationSegments.map((segment, index) => {
+                        const assignment = alignmentAssignments[index];
+                        const asset = visualLibrary.find((item) => item.id === assignment?.assetId);
+                        const added = alignmentPreview.addedScenes.find((scene) => scene.narrationSegmentId === segment.id);
+                        const skipped = alignmentPreview.skipped.find((item) => item.segmentId === segment.id);
+                        return (
+                          <li key={segment.id} className={added ? "assignment-ready" : "assignment-skipped"}>
+                            <strong>Segment {index + 1}</strong>
+                            <span>{formatDuration(segment.startTime)}–{formatDuration(segment.endTime)} · {Math.max(0, segment.endTime - segment.startTime).toFixed(3)} sec</span>
+                            <span>{asset?.originalName ?? "No media selected"}</span>
+                            <span>{added ? "Ready to add" : alignmentSkipLabel(skipped?.reason ?? "no-media-selected", skipped?.conflictingSceneTitle)}</span>
+                          </li>
+                        );
+                      })}
+                    </ul>
+                    <p className="alignment-render-note">Short video clips loop to fill their scene duration; the renderer preserves aspect ratio with letterboxing/pillarboxing.</p>
+                    <button type="button" className="primary-button" onClick={applyVisualAlignment} disabled={alignmentPreview.addedScenes.length === 0}>Apply proposed scene assignments ({alignmentPreview.addedScenes.length})</button>
+                    {alignmentMessage && <p className="alignment-message" role="status">{alignmentMessage}</p>}
+                  </>
+                )}
+              </div>
               <div className="active-visual-scene">
                 <h3>Active Visual Scene</h3>
 

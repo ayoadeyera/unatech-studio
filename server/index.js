@@ -303,7 +303,7 @@ app.post("/api/projects/:projectId/narration/segments", async (req, res, next) =
 app.post(
   "/api/projects/:projectId/visuals",
   uploadVisual.single("visual"),
-  (req, res) => {
+  (req, res, next) => {
     if (!req.file) {
       return res.status(400).json({
         success: false,
@@ -316,24 +316,72 @@ app.post(
     const mediaUrl =
       `/api/projects/${projectId}/visuals/${req.file.filename}`;
 
+    const metadataPath = `${req.file.path}.meta.json`;
+    const metadata = {
+      originalName: path.basename(req.file.originalname.replace(/\\/g, "/")),
+      mimeType: req.file.mimetype,
+      mediaType: req.file.mimetype.startsWith("image/") ? "image" : "video",
+    };
+    try {
+      fs.writeFileSync(metadataPath, JSON.stringify(metadata), { flag: "wx" });
+    } catch (error) {
+      fs.unlink(req.file.path, () => {});
+      return next(error);
+    }
+
     res.status(201).json({
       success: true,
       message: "Visual media uploaded successfully.",
       media: {
         id: path.parse(req.file.filename).name,
         projectId,
-        originalName: req.file.originalname,
+        originalName: metadata.originalName,
         filename: req.file.filename,
         size: req.file.size,
         mimeType: req.file.mimetype,
-        mediaType: req.file.mimetype.startsWith("image/")
-          ? "image"
-          : "video",
+        mediaType: metadata.mediaType,
         url: mediaUrl,
       },
     });
   }
 );
+
+// List this project's uploaded visual media without exposing other projects' files.
+app.get("/api/projects/:projectId/visuals", (req, res, next) => {
+  const { projectId } = req.params;
+  const projectDirectory = path.join(VISUAL_UPLOAD_ROOT, projectId);
+  try {
+    const media = fs.readdirSync(projectDirectory, { withFileTypes: true })
+      .filter((entry) => entry.isFile() && /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}\.(jpg|png|webp|mp4)$/i.test(entry.name))
+      .map((entry) => {
+        const filePath = path.join(projectDirectory, entry.name);
+        const metadataPath = `${filePath}.meta.json`;
+        let metadata = {};
+        try {
+          metadata = JSON.parse(fs.readFileSync(metadataPath, "utf8"));
+        } catch {
+          // Uploads from earlier app versions have no sidecar metadata.
+        }
+        const stat = fs.statSync(filePath);
+        const extension = path.extname(entry.name).toLowerCase();
+        const mediaType = extension === ".mp4" ? "video" : "image";
+        return {
+          id: entry.name,
+          projectId,
+          filename: entry.name,
+          originalName: metadata.originalName || entry.name,
+          size: stat.size,
+          mimeType: metadata.mimeType || (mediaType === "video" ? "video/mp4" : `image/${extension.slice(1)}`),
+          mediaType,
+          url: `/api/projects/${projectId}/visuals/${entry.name}`,
+        };
+      });
+    return res.json({ success: true, media });
+  } catch (error) {
+    if (error.code === "ENOENT") return res.json({ success: true, media: [] });
+    return next(error);
+  }
+});
 
 // Retrieve uploaded visual media
 app.get(

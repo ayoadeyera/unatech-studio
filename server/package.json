@@ -6,7 +6,9 @@
   "scripts": {
     "start": "node index.js",
     "dev": "nodemon index.js",
-    "test:segmentation": "node testNarrationSegmentation.js"
+    "test:segmentation": "node testNarrationSegmentation.js",
+    "test:visual-alignment": "node testVisualAlignment.js",
+    "test:visual-alignment:export": "node testVisualAlignmentExport.js"
 },
   "keywords": [],
   "author": "",
