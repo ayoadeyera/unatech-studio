@@ -1,5 +1,6 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { appendNonOverlappingSegmentScenes, segmentCanBePlaced } from "./narrationSceneWorkflow.cjs";
 import "./App.css";
 
 type Preset = "Focused Teaching" | "Entertaining Presenter" | "High-Energy Explainer";
@@ -28,6 +29,7 @@ interface VisualScene {
   mediaType: VisualMediaType;
   mediaUrl: string | null;
   originalName: string | null;
+  narrationSegmentId?: string;
 }
 
 interface Project {
@@ -39,7 +41,6 @@ interface Project {
   teachingPauses?: TeachingPause[];
   visualScenes?: VisualScene[];
   narrationSegments?: NarrationSegment[];
-  appliedNarrationSegmentsKey?: string;
   narration?: {
     filename: string;
     originalName: string;
@@ -128,9 +129,6 @@ function App() {
   const narrationSegments = useMemo(
     () => selectedProject?.narrationSegments ?? [],
     [selectedProject?.narrationSegments]
-  );
-  const narrationSegmentsKey = JSON.stringify(
-    narrationSegments.map(({ startTime, endTime }) => [startTime, endTime])
   );
 
   const orderedVisualScenes = useMemo(
@@ -572,7 +570,7 @@ function App() {
     if (!selectedProjectId) return;
     const updatedProjects = projects.map((project) =>
       project.id === selectedProjectId
-        ? { ...project, narrationSegments: nextSegments, appliedNarrationSegmentsKey: undefined }
+        ? { ...project, narrationSegments: nextSegments }
         : project
     );
     setProjects(updatedProjects);
@@ -585,7 +583,13 @@ function App() {
       if (segment.id !== segmentId) return segment;
       const startTime = field === "startTime" ? value : segment.startTime;
       const endTime = field === "endTime" ? value : segment.endTime;
-      if (endTime <= startTime) return segment;
+      if (
+        endTime <= startTime ||
+        !segmentCanBePlaced(narrationSegments, segment.id, startTime, endTime)
+      ) {
+        setSegmentationMessage("Segment boundaries cannot overlap another suggested segment.");
+        return segment;
+      }
       return { ...segment, startTime, endTime, duration: Number((endTime - startTime).toFixed(3)) };
     }).sort((a, b) => a.startTime - b.startTime);
     saveNarrationSegments(segments);
@@ -643,26 +647,29 @@ function App() {
   }
 
   function appendNarrationSegmentsAsScenes() {
-    if (!selectedProjectId || narrationSegments.length === 0 || selectedProject?.appliedNarrationSegmentsKey === narrationSegmentsKey) return;
-    const newScenes: VisualScene[] = narrationSegments.map((segment, index) => ({
-      id: crypto.randomUUID(),
-      title: `Narration Segment ${index + 1}`,
-      startTime: segment.startTime,
-      duration: segment.duration,
-      mediaType: "image",
-      mediaUrl: null,
-      originalName: null,
-    }));
+    if (!selectedProjectId || narrationSegments.length === 0 || !selectedProject) return;
+    const existingScenes = selectedProject.visualScenes ?? [];
+    const result = appendNonOverlappingSegmentScenes(
+      narrationSegments,
+      existingScenes,
+      () => crypto.randomUUID(),
+    );
+    if (result.addedCount === 0) {
+      setSegmentationMessage(
+        result.overlapCount > 0
+          ? `${result.duplicateCount} segment slot(s) already exist; ${result.overlapCount} segment(s) overlap existing scenes. No scene slots were added.`
+          : `${result.duplicateCount} segment slot(s) already exist. Existing scene timing and edits were preserved; no duplicates were added.`,
+      );
+      return;
+    }
     const updatedProjects = projects.map((project) => project.id === selectedProjectId
-      ? {
-          ...project,
-          visualScenes: [...(project.visualScenes ?? []), ...newScenes].sort((a, b) => a.startTime - b.startTime),
-          appliedNarrationSegmentsKey: narrationSegmentsKey,
-        }
+      ? { ...project, visualScenes: result.scenes }
       : project);
     setProjects(updatedProjects);
     localStorage.setItem(STORAGE_KEY, JSON.stringify(updatedProjects));
-    setSegmentationMessage(`${newScenes.length} new scene slots appended. Existing scenes were preserved; upload visual media and resolve any timeline overlaps before export.`);
+    setSegmentationMessage(
+      `${result.addedCount} new scene slot(s) appended; ${result.duplicateCount} existing slot(s) were kept and ${result.overlapCount} overlapping segment(s) were skipped. Existing media and manual edits were preserved. Upload media to new slots before export.`,
+    );
   }
   function formatDuration(seconds: number): string {
     if (!Number.isFinite(seconds) || seconds < 0) {
@@ -831,7 +838,7 @@ function App() {
 
       const updatedProjects = projects.map((project) =>
         project.id === selectedProjectId
-          ? { ...project, narration: data.narration, narrationSegments: [], appliedNarrationSegmentsKey: undefined }
+          ? { ...project, narration: data.narration, narrationSegments: [] }
           : project
       );
 
@@ -1250,7 +1257,7 @@ function App() {
                       {segmentationMessage && <p role="status">{segmentationMessage}</p>}
                       {narrationSegments.length > 0 && (
                         <>
-                          <p>Review and adjust the suggested boundaries. Applying them appends empty visual scene slots; it never replaces existing scenes.</p>
+                          <p>Review and adjust the suggested boundaries. Applying them appends empty, non-overlapping visual scene slots; it never replaces or changes existing scenes.</p>
                           <ul className="narration-segments-list">
                             {narrationSegments.map((segment, index) => (
                               <li className="narration-segment-card" key={segment.id}>
@@ -1288,10 +1295,9 @@ function App() {
                           <button
                             type="button"
                             className="primary-button"
-                            disabled={selectedProject?.appliedNarrationSegmentsKey === narrationSegmentsKey}
                             onClick={appendNarrationSegmentsAsScenes}
                           >
-                            {selectedProject?.appliedNarrationSegmentsKey === narrationSegmentsKey ? "Scene Slots Appended" : "Append Segments as New Scene Slots"}
+                            Append Non-overlapping Scene Slots
                           </button>
                         </>
                       )}
