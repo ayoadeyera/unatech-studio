@@ -70,13 +70,20 @@ async function main() {
     fadeOutDuration: 0.2,
     transitionDuration: 0.2,
   };
-  const expression = buildPauseAwareVolumeExpression(
-    [{ startTime: 2, duration: 1 }, { startTime: 5, duration: 0.5 }],
-    settings,
-  );
-  assert.match(expression, /0\.4/);
-  assert.match(expression, /0\.1/);
-  assert.match(expression, /lt\(t\\,2\.2\)/);
+  const pauseSet = (count) => Array.from({ length: count }, (_, index) => ({
+    startTime: 0.2 + index * 0.15,
+    duration: 0.08,
+  }));
+  const expression2 = buildPauseAwareVolumeExpression(pauseSet(2), settings);
+  const expression10 = buildPauseAwareVolumeExpression(pauseSet(10), settings);
+  const expression50 = buildPauseAwareVolumeExpression(pauseSet(50), settings);
+  assert.match(expression2, /0\.4/);
+  assert.match(expression2, /0\.1/);
+  assert.match(expression2, /min\(max\(/);
+  assert.ok(expression10.length > expression2.length);
+  assert.ok(expression50.length > expression10.length);
+  assert.ok(expression50.length < expression10.length * 6, "expression size grows linearly across 50 pauses");
+  assert.ok(expression50.length < 12_000, "50-pause volume expression stays bounded");
 
   const temporaryDirectory = await fs.mkdtemp(path.join(os.tmpdir(), "unatech-background-music-"));
   try {
@@ -110,6 +117,27 @@ async function main() {
     const speechMusicLevel = await toneAmplitude(mixedAudio, 1, 1000);
     const pauseMusicLevel = await toneAmplitude(mixedAudio, 2.5, 1000);
     assert.ok(pauseMusicLevel > speechMusicLevel * 2.5, `pause music should rise smoothly over speech (${pauseMusicLevel} vs ${speechMusicLevel})`);
+    const narrationBeforeMix = await toneAmplitude(pausedNarration, 1, 440);
+    const narrationAfterMix = await toneAmplitude(mixedAudio, 1, 440);
+    assert.ok(narrationAfterMix >= narrationBeforeMix * 0.9, `amix keeps narration gain clear under music (${narrationAfterMix} vs ${narrationBeforeMix})`);
+
+    const fiftyPauses = Array.from({ length: 50 }, (_, index) => ({ time: 0.1 + index * 0.1, duration: 0.01 }));
+    const fiftyPausedNarration = path.join(temporaryDirectory, "fifty-pauses.wav");
+    const fiftyPauseMix = path.join(temporaryDirectory, "fifty-pause-mix.wav");
+    const fiftyPauseInsert = await insertTeachingPauses({
+      audioPath: narration,
+      teachingPauses: fiftyPauses,
+      outputPath: fiftyPausedNarration,
+    });
+    assert.equal(fiftyPauseInsert.pauseCount, 50);
+    const fiftyPauseResult = await mixBackgroundMusic({
+      audioPath: fiftyPausedNarration,
+      musicPath: music,
+      outputPath: fiftyPauseMix,
+      teachingPauses: fiftyPauses,
+      settings: { ...settings, transitionDuration: 0.02 },
+    });
+    assert.ok(Math.abs(fiftyPauseResult.duration - 6.5) < 0.03, "50 pause ramps mix across the complete pause-extended timeline");
 
     const limitedAudio = path.join(temporaryDirectory, "limited-mix.wav");
     await mixBackgroundMusic({
@@ -146,7 +174,7 @@ async function main() {
     assert.ok(probe.streams.some((stream) => stream.codec_type === "video" && stream.codec_name === "h264"));
     assert.ok(Math.abs(Number(probe.format.duration) - 7.5) < 0.1, "MP4 keeps pause-extended narration duration");
 
-    console.log(`PASS: project/file/settings validation; short music loop; pause-aware ramps; limiter peak ${peak.toFixed(2)} dBFS; ${result.duration.toFixed(2)}s mixed audio and H.264/AAC MP4; source audio preserved.`);
+    console.log(`PASS: project/file/settings validation; linear ramp expressions for 2/10/50 pauses; narration gain preserved; limiter peak ${peak.toFixed(2)} dBFS; ${result.duration.toFixed(2)}s mixed audio and H.264/AAC MP4; source audio preserved.`);
   } finally {
     await fs.rm(temporaryDirectory, { recursive: true, force: true });
   }

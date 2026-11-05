@@ -69,28 +69,32 @@ function formatNumber(value) {
 function buildPauseAwareVolumeExpression(teachingPauses, settings) {
   const duckLevel = settings.musicVolume * settings.narrationDuckingLevel;
   const pauseLevel = settings.musicVolume * settings.teachingPauseMusicLevel;
-  let expression = formatNumber(duckLevel);
+  const duck = formatNumber(duckLevel);
+  const pauseDelta = formatNumber(pauseLevel - duckLevel);
+  const envelopes = [];
   const ordered = [...teachingPauses].sort((a, b) => a.startTime - b.startTime);
 
-  for (const pause of ordered.reverse()) {
+  for (const pause of ordered) {
     const ramp = Math.min(settings.transitionDuration, pause.duration / 2);
     const start = formatNumber(pause.startTime);
     const end = formatNumber(pause.startTime + pause.duration);
-    const rampInEnd = formatNumber(pause.startTime + ramp);
-    const rampOutStart = formatNumber(pause.startTime + pause.duration - ramp);
-    const baseline = formatNumber(duckLevel);
-    const duringPause = formatNumber(pauseLevel);
     if (ramp <= 0) {
-      expression = `if(between(t,${start},${end}),${duringPause},${expression})`;
+      envelopes.push(`if(between(t,${start},${end}),1,0)`);
       continue;
     }
-    expression =
-      `if(lt(t,${start}),${expression},` +
-      `if(lt(t,${rampInEnd}),${baseline}+(${duringPause}-${baseline})*(t-${start})/${formatNumber(ramp)},` +
-      `if(lt(t,${rampOutStart}),${duringPause},` +
-      `if(lt(t,${end}),${duringPause}+(${baseline}-${duringPause})*(t-${rampOutStart})/${formatNumber(ramp)},${expression}))))`;
+    const rampSeconds = formatNumber(ramp);
+    envelopes.push(
+      `min(max(min((t-${start})/${rampSeconds},(${end}-t)/${rampSeconds}),0),1)`,
+    );
   }
-  return expression.replace(/,/g, "\\,");
+  if (envelopes.length === 0 || pauseDelta === "0") return duck;
+
+  // The envelope terms form a linear-size sum. Clamping prevents adjacent
+  // ramps from stacking above the teaching-pause level (or below duck level).
+  const volume = `${duck}+${envelopes.map((envelope) => `(${pauseDelta})*${envelope}`).join("+")}`;
+  const low = formatNumber(Math.min(duckLevel, pauseLevel));
+  const high = formatNumber(Math.max(duckLevel, pauseLevel));
+  return `min(max(${volume},${low}),${high})`.replace(/,/g, "\\,");
 }
 
 function getAudioDuration(filePath) {
@@ -144,7 +148,7 @@ async function mixBackgroundMusic({ audioPath, musicPath, outputPath, teachingPa
       (fadeIn > 0 ? `,afade=t=in:st=0:d=${formatNumber(fadeIn)}` : "") +
       (fadeOut > 0 ? `,afade=t=out:st=${formatNumber(Math.max(0, duration - fadeOut))}:d=${formatNumber(fadeOut)}` : "") +
       `,volume='${buildPauseAwareVolumeExpression(mappedPauses, normalizedSettings)}':eval=frame[music]`,
-    "[narration][music]amix=inputs=2:duration=first:dropout_transition=0,alimiter=limit=0.95:attack=5:release=50:level=false,aresample=48000[aout]",
+    "[narration][music]amix=inputs=2:duration=first:dropout_transition=0:weights='1 1':normalize=0,alimiter=limit=0.95:attack=5:release=50:level=false,aresample=48000[aout]",
   ];
   await fs.mkdir(path.dirname(outputPath), { recursive: true });
   const args = [
