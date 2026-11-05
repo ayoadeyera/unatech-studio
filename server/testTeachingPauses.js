@@ -1,46 +1,40 @@
-
+const assert = require("node:assert/strict");
+const { execFile } = require("node:child_process");
+const fs = require("node:fs/promises");
+const os = require("node:os");
 const path = require("node:path");
-const fs = require("node:fs");
+const { promisify } = require("node:util");
 const { insertTeachingPauses } = require("./utils/insertTeachingPauses");
 
-const projectId = "d1347e5b-187d-4688-b97c-0c8292f0a5bd";
+const execFileAsync = promisify(execFile);
 
-const narrationFolder = path.join(
-  __dirname,
-  "uploads",
-  "narrations",
-  projectId
-);
-
-const audioFile = fs.readdirSync(narrationFolder).find(
-  (file) => file.endsWith(".mp3") || file.endsWith(".wav")
-);
-
-if (!audioFile) {
-  throw new Error("No narration file found.");
+async function main() {
+  const directory = await fs.mkdtemp(path.join(os.tmpdir(), "unatech-pause-test-"));
+  try {
+    const audioPath = path.join(directory, "synthetic-narration.wav");
+    const outputPath = path.join(directory, "with-teaching-pauses.wav");
+    await execFileAsync("ffmpeg", [
+      "-hide_banner", "-loglevel", "error", "-y", "-f", "lavfi",
+      "-i", "sine=frequency=440:duration=30", "-c:a", "pcm_s16le", audioPath,
+    ], { windowsHide: true, timeout: 300000 });
+    const result = await insertTeachingPauses({
+      audioPath,
+      outputPath,
+      teachingPauses: [
+        { time: 10, duration: 3 },
+        { time: 25, duration: 3 },
+      ],
+    });
+    assert.equal(result.originalDuration, 30);
+    assert.equal(result.expectedDuration, 36);
+    assert.equal(result.pauseCount, 2);
+    console.log("PASS: synthetic narration gains two teaching silences without modifying its source (36.00s output).");
+  } finally {
+    await fs.rm(directory, { recursive: true, force: true });
+  }
 }
 
-const audioPath = path.join(narrationFolder, audioFile);
-
-const outputPath = path.join(
-  __dirname,
-  "uploads",
-  "teaching-pause-test.wav"
-);
-
-insertTeachingPauses({
-  audioPath,
-  outputPath,
-  teachingPauses: [
-    { time: 10, duration: 3 },
-    { time: 25, duration: 3 },
-  ],
-})
-  .then((result) => {
-    console.log("Teaching pause test successful!");
-    console.log(result);
-  })
-  .catch((error) => {
-    console.error("Teaching pause test failed:", error.message);
-    process.exitCode = 1;
-  });
+main().catch((error) => {
+  console.error("FAIL: teaching pause insertion", error);
+  process.exitCode = 1;
+});

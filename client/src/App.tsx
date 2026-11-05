@@ -7,6 +7,7 @@ import {
   planVisualAlignment,
   type AlignmentMediaAsset,
 } from "./visualAlignment";
+import { DEFAULT_BACKGROUND_MUSIC_SETTINGS, type BackgroundMusicSettings } from "./backgroundMusic";
 import "./App.css";
 
 type Preset = "Focused Teaching" | "Entertaining Presenter" | "High-Energy Explainer";
@@ -19,6 +20,12 @@ interface TeachingPause {
 }
 
 type VisualMediaType = "image" | "video";
+
+interface BackgroundMusicAsset {
+  filename: string;
+  originalName: string;
+  size: number;
+}
 
 interface NarrationSegment {
   id: string;
@@ -54,6 +61,8 @@ interface Project {
     url: string;
     size: number;
   };
+  backgroundMusic?: { filename: string; originalName: string };
+  backgroundMusicSettings?: BackgroundMusicSettings;
 }
 
 
@@ -100,6 +109,10 @@ function App() {
       return localStorage.getItem(SELECTED_PROJECT_KEY);
     });
   const [audioFile, setAudioFile] = useState<File | null>(null);
+  const [musicFile, setMusicFile] = useState<File | null>(null);
+  const [musicLibrary, setMusicLibrary] = useState<BackgroundMusicAsset[]>([]);
+  const [musicUploading, setMusicUploading] = useState(false);
+  const [musicMessage, setMusicMessage] = useState("");
   const [uploading, setUploading] = useState(false);
   const [uploadMessage, setUploadMessage] = useState("");
   const [segmenting, setSegmenting] = useState(false);
@@ -202,6 +215,26 @@ function App() {
       .catch((error: unknown) => {
         if (!active) return;
         setVisualLibraryMessage(error instanceof Error ? error.message : "Could not load project media.");
+      });
+    return () => { active = false; };
+  }, [selectedProjectId]);
+
+  useEffect(() => {
+    if (!selectedProjectId) {
+      setMusicLibrary([]);
+      return;
+    }
+    let active = true;
+    fetch(`${import.meta.env.VITE_API_URL}/api/projects/${selectedProjectId}/background-music`)
+      .then(async (response) => {
+        const data = await response.json();
+        if (!response.ok || !data.success || !Array.isArray(data.music)) {
+          throw new Error(data.message || "Could not load background music.");
+        }
+        if (active) setMusicLibrary(data.music);
+      })
+      .catch((error: unknown) => {
+        if (active) setMusicMessage(error instanceof Error ? error.message : "Could not load background music.");
       });
     return () => { active = false; };
   }, [selectedProjectId]);
@@ -329,6 +362,7 @@ function App() {
       script: script.trim(),
       preset,
       createdAt: new Date().toISOString(),
+      backgroundMusicSettings: { ...DEFAULT_BACKGROUND_MUSIC_SETTINGS },
       teachingPauses: [],
       visualScenes: [],
     };
@@ -361,6 +395,8 @@ function App() {
     setCurrentTime(0);
     setSelectedPauseId(null);
     setAudioFile(null);
+    setMusicFile(null);
+    setMusicMessage("");
     setUploadMessage("");
     setMessage("");
     setView("editor");
@@ -909,6 +945,59 @@ function App() {
     }
   }
 
+  function updateProjectMusic(
+    patch: Partial<Pick<Project, "backgroundMusic" | "backgroundMusicSettings">>,
+  ) {
+    if (!selectedProjectId) return;
+    const updated = projects.map((project) =>
+      project.id === selectedProjectId ? { ...project, ...patch } : project,
+    );
+    setProjects(updated);
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(updated));
+  }
+
+  function updateMusicSetting(key: keyof BackgroundMusicSettings, value: number) {
+    const settings = selectedProject?.backgroundMusicSettings ?? DEFAULT_BACKGROUND_MUSIC_SETTINGS;
+    updateProjectMusic({ backgroundMusicSettings: { ...settings, [key]: value } });
+  }
+
+  async function uploadBackgroundMusic() {
+    if (!selectedProjectId || !musicFile || musicUploading) return;
+    const extension = musicFile.name.split(".").pop()?.toLowerCase();
+    if (extension !== "mp3" && extension !== "wav") {
+      setMusicMessage("Choose an MP3 or WAV audio file.");
+      return;
+    }
+    if (musicFile.size > 100 * 1024 * 1024) {
+      setMusicMessage("Background music must be smaller than 100 MB.");
+      return;
+    }
+
+    setMusicUploading(true);
+    setMusicMessage("Uploading background music...");
+    try {
+      const formData = new FormData();
+      formData.append("music", musicFile);
+      const response = await fetch(
+        `${import.meta.env.VITE_API_URL}/api/projects/${selectedProjectId}/background-music`,
+        { method: "POST", body: formData },
+      );
+      const data = await response.json();
+      if (!response.ok || !data.success || !data.music) {
+        throw new Error(data.message || "Background music upload failed.");
+      }
+      const asset: BackgroundMusicAsset = data.music;
+      setMusicLibrary((previous) => [asset, ...previous.filter((item) => item.filename !== asset.filename)]);
+      updateProjectMusic({ backgroundMusic: { filename: asset.filename, originalName: asset.originalName } });
+      setMusicFile(null);
+      setMusicMessage(`Uploaded and selected ${asset.originalName}. Effects are applied during export.`);
+    } catch (error) {
+      setMusicMessage(error instanceof Error ? error.message : "Background music upload failed.");
+    } finally {
+      setMusicUploading(false);
+    }
+  }
+
   async function uploadNarration() {
     if (!selectedProjectId || !audioFile || uploading) return;
 
@@ -1005,6 +1094,10 @@ function App() {
             audioFilename: selectedProject.narration.filename,
             scenes,
             teachingPauses: selectedProject.teachingPauses ?? [],
+            backgroundMusicFilename: selectedProject.backgroundMusic?.filename,
+            backgroundMusicSettings: selectedProject.backgroundMusic
+              ? (selectedProject.backgroundMusicSettings ?? DEFAULT_BACKGROUND_MUSIC_SETTINGS)
+              : undefined,
           }),
         }
       );
@@ -1205,6 +1298,101 @@ function App() {
               </button>
 
               {uploadMessage && <p role="status">{uploadMessage}</p>}
+
+              <section className="background-music-settings" aria-labelledby="background-music-heading">
+                <h4 id="background-music-heading">Background Music</h4>
+                <p>
+                  Upload MP3 or WAV music for this project. Mixing effects are applied during MP4 export;
+                  the live preview plays narration without background music.
+                </p>
+                <label htmlFor="background-music-file">Select background music (maximum 100 MB)</label>
+                <input
+                  id="background-music-file"
+                  key={selectedProjectId ?? "no-project"}
+                  type="file"
+                  accept=".mp3,.wav,audio/mpeg,audio/wav"
+                  onChange={(event) => {
+                    setMusicFile(event.target.files?.[0] ?? null);
+                    setMusicMessage("");
+                  }}
+                />
+                <button
+                  className="primary-button"
+                  type="button"
+                  disabled={!musicFile || musicUploading}
+                  onClick={uploadBackgroundMusic}
+                >
+                  {musicUploading ? "Uploading music..." : "Upload Music"}
+                </button>
+                <label htmlFor="background-music-selection">Selected project track</label>
+                <select
+                  id="background-music-selection"
+                  value={selectedProject?.backgroundMusic?.filename ?? ""}
+                  onChange={(event) => {
+                    const asset = musicLibrary.find((item) => item.filename === event.target.value);
+                    updateProjectMusic({
+                      backgroundMusic: asset
+                        ? { filename: asset.filename, originalName: asset.originalName }
+                        : undefined,
+                    });
+                    setMusicMessage(asset
+                      ? `${asset.originalName} selected for export.`
+                      : "Background music disabled; exports use narration only.");
+                  }}
+                >
+                  <option value="">No background music</option>
+                  {musicLibrary.map((asset) => (
+                    <option key={asset.filename} value={asset.filename}>{asset.originalName}</option>
+                  ))}
+                </select>
+                <div className="background-music-controls">
+                  {([
+                    ["musicVolume", "Music volume"],
+                    ["narrationDuckingLevel", "Narration ducking (music under speech)"],
+                    ["teachingPauseMusicLevel", "Music level during teaching pauses"],
+                  ] as const).map(([key, label]) => {
+                    const settings = selectedProject?.backgroundMusicSettings ?? DEFAULT_BACKGROUND_MUSIC_SETTINGS;
+                    return (
+                      <label key={key} className="music-range-control">
+                        {label}<span>{Math.round(settings[key] * 100)}%</span>
+                        <input
+                          type="range"
+                          min="0"
+                          max="1"
+                          step="0.01"
+                          value={settings[key]}
+                          onChange={(event) => updateMusicSetting(key, Number(event.target.value))}
+                        />
+                      </label>
+                    );
+                  })}
+                  {([
+                    ["fadeInDuration", "Fade in (seconds)"],
+                    ["fadeOutDuration", "Fade out (seconds)"],
+                    ["transitionDuration", "Pause transition (seconds)"],
+                  ] as const).map(([key, label]) => {
+                    const settings = selectedProject?.backgroundMusicSettings ?? DEFAULT_BACKGROUND_MUSIC_SETTINGS;
+                    return (
+                      <label key={key} className="music-range-control">
+                        {label}<span>{settings[key].toFixed(1)} s</span>
+                        <input
+                          type="range"
+                          min="0"
+                          max="10"
+                          step="0.1"
+                          value={settings[key]}
+                          onChange={(event) => updateMusicSetting(key, Number(event.target.value))}
+                        />
+                      </label>
+                    );
+                  })}
+                </div>
+                {musicMessage && <p role="status">{musicMessage}</p>}
+                <p className="music-export-note">
+                  Focused Teaching defaults keep music quiet under narration and raise it gently during teaching pauses.
+                  Adjust the levels and ramps for this project.
+                </p>
+              </section>
 
               {projects
                 .find((project) => project.id === selectedProjectId)

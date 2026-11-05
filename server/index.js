@@ -14,6 +14,11 @@ const { prepareScenes } = require("./utils/prepareScenes");
 const { renderMixedMediaVideo } = require("./utils/renderMixedMediaVideo");
 const { preparePausedRender } = require("./utils/preparePausedRender");
 const { detectNarrationSegments } = require("./utils/detectNarrationSegments");
+const {
+  MAX_BACKGROUND_MUSIC_SIZE, MUSIC_FILENAME_PATTERN, createStoredMusicFilename,
+  getBackgroundMusicExtension, isValidProjectId, mixBackgroundMusic,
+  normalizeBackgroundMusicSettings,
+} = require("./utils/backgroundMusic");
 const app = express();
 const PORT = process.env.PORT || 5000;
 
@@ -27,11 +32,13 @@ const VISUAL_UPLOAD_ROOT = path.join(
 );
 
 const MAX_VISUAL_SIZE = 100 * 1024 * 1024;
+const BACKGROUND_MUSIC_ROOT = path.join(__dirname, "uploads", "background-music");
 
 fs.mkdirSync(VISUAL_UPLOAD_ROOT, {
   recursive: true,
 });
 fs.mkdirSync(UPLOAD_ROOT, { recursive: true });
+fs.mkdirSync(BACKGROUND_MUSIC_ROOT, { recursive: true });
 
 // Middleware
 app.use(cors());
@@ -90,6 +97,35 @@ const upload = multer({
       );
     }
 
+    callback(null, true);
+  },
+});
+
+// Background music stays isolated by project and uses unique, validated filenames.
+function requireValidProjectId(req, res, next) {
+  if (!isValidProjectId(req.params.projectId)) {
+    return res.status(400).json({ success: false, message: "Invalid project ID." });
+  }
+  next();
+}
+const backgroundMusicStorage = multer.diskStorage({
+  destination: (req, file, callback) => {
+    const directory = path.join(BACKGROUND_MUSIC_ROOT, req.params.projectId);
+    fs.mkdirSync(directory, { recursive: true });
+    callback(null, directory);
+  },
+  filename: (req, file, callback) => {
+    try { callback(null, createStoredMusicFilename(file.originalname, file.mimetype)); }
+    catch (error) { callback(error); }
+  },
+});
+const uploadBackgroundMusic = multer({
+  storage: backgroundMusicStorage,
+  limits: { fileSize: MAX_BACKGROUND_MUSIC_SIZE, files: 1 },
+  fileFilter: (req, file, callback) => {
+    if (!getBackgroundMusicExtension(file.originalname, file.mimetype)) {
+      return callback(new Error("Only MP3 and WAV background music files are supported."));
+    }
     callback(null, true);
   },
 });
@@ -204,6 +240,33 @@ app.param("projectId", (req, res, next, projectId) => {
   }
 
   next();
+});
+
+// Background music library: uploads are project-scoped and never replace narration.
+app.get("/api/projects/:projectId/background-music", requireValidProjectId, async (req, res, next) => {
+  try {
+    const directory = path.join(BACKGROUND_MUSIC_ROOT, req.params.projectId);
+    let names = [];
+    try { names = await fs.promises.readdir(directory); }
+    catch (error) { if (error.code !== "ENOENT") throw error; }
+    const music = await Promise.all(names.filter((name) => MUSIC_FILENAME_PATTERN.test(name)).map(async (filename) => {
+      const stat = await fs.promises.stat(path.join(directory, filename));
+      const match = filename.match(/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}-([a-z0-9_-]+)\.(mp3|wav)$/i);
+      const originalName = match ? match[1].replace(/[-_]+/g, " ") + "." + match[2].toLowerCase() : filename;
+      return { filename, originalName, size: stat.size };
+    }));
+    return res.status(200).json({ success: true, music });
+  } catch (error) { next(error); }
+});
+app.post("/api/projects/:projectId/background-music", requireValidProjectId, (req, res, next) => {
+  uploadBackgroundMusic.single("music")(req, res, (error) => {
+    if (error) return next(error);
+    if (!req.file) return res.status(400).json({ success: false, message: "Choose an MP3 or WAV background music file." });
+    return res.status(201).json({
+      success: true, message: "Background music uploaded successfully.",
+      music: { filename: req.file.filename, originalName: req.file.originalname, size: req.file.size },
+    });
+  });
 });
 
 // Upload narration
@@ -687,12 +750,15 @@ app.post(
 // Generate an MP4 from images, video clips and narration.
 app.post(
   "/api/projects/:projectId/render-mixed",
+  requireValidProjectId,
   async (req, res) => {
     const { projectId } = req.params;
     const {
       audioFilename,
       scenes,
       teachingPauses = [],
+      backgroundMusicFilename,
+      backgroundMusicSettings,
     } = req.body || {};
 
     const uuidFilename =
@@ -755,6 +821,14 @@ app.post(
       });
     }
 
+    let normalizedMusicSettings = null;
+    if (backgroundMusicFilename !== undefined && backgroundMusicFilename !== null && backgroundMusicFilename !== "") {
+      if (typeof backgroundMusicFilename !== "string" || !MUSIC_FILENAME_PATTERN.test(backgroundMusicFilename)) {
+        return res.status(400).json({ success: false, message: "Invalid background music filename." });
+      }
+      try { normalizedMusicSettings = normalizeBackgroundMusicSettings(backgroundMusicSettings); }
+      catch (error) { return res.status(400).json({ success: false, message: error.message }); }
+    }
     const preparedPauses = teachingPauses
       .map((pause) => ({
         time: pause.time,
@@ -824,9 +898,14 @@ app.post(
       projectId,
       audioFilename
     );
+    const musicDirectory = path.join(BACKGROUND_MUSIC_ROOT, projectId);
+    const musicPath = normalizedMusicSettings
+      ? path.join(musicDirectory, backgroundMusicFilename)
+      : null;
 
     if (
       !fs.existsSync(audioPath) ||
+      (musicPath && !fs.existsSync(musicPath)) ||
       preparedScenes.some(
         (scene) => !fs.existsSync(scene.mediaPath)
       )
@@ -849,6 +928,7 @@ app.post(
 
 
     let temporaryAudioPath = null;
+    let mixedAudioPath = null;
 
     try {
       let renderScenes = preparedScenes;
@@ -878,7 +958,14 @@ app.post(
         renderScenes = prepared.scenes;
         renderAudioPath = prepared.audioPath;
       }
-
+      if (musicPath) {
+        mixedAudioPath = path.join(RENDER_OUTPUT_ROOT, projectId, crypto.randomUUID() + "-background-mix.wav");
+        await mixBackgroundMusic({
+          audioPath: renderAudioPath, musicPath, outputPath: mixedAudioPath,
+          teachingPauses: preparedPauses, settings: normalizedMusicSettings,
+        });
+        renderAudioPath = mixedAudioPath;
+      }
       const result = await renderMixedMediaVideo({
         scenes: renderScenes,
         audioPath: renderAudioPath,
@@ -915,12 +1002,12 @@ app.post(
           "Mixed-media rendering failed. Check the server terminal.",
       });
     } finally {
-      if (temporaryAudioPath) {
-        await fs.promises.rm(temporaryAudioPath, {
-          force: true,
-        }).catch((error) => {
-          console.error("Temporary audio cleanup failed:", error);
-        });
+      for (const temporaryPath of [temporaryAudioPath, mixedAudioPath]) {
+        if (temporaryPath) {
+          await fs.promises.rm(temporaryPath, { force: true }).catch((error) => {
+            console.error("Temporary audio cleanup failed:", error);
+          });
+        }
       }
     }
 

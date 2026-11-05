@@ -253,6 +253,59 @@ a {
   cursor: pointer;
 }
 
+.background-music-settings {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  margin-top: 20px;
+  padding: 18px;
+  border: 1px solid #34405a;
+  border-radius: 12px;
+  background: #11182b;
+}
+
+.background-music-settings h4,
+.background-music-settings p {
+  margin: 0;
+}
+
+.background-music-settings > p {
+  color: #aeb8ce;
+  line-height: 1.5;
+}
+
+.background-music-controls {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(210px, 1fr));
+  gap: 12px 20px;
+  margin-top: 4px;
+}
+
+.music-range-control {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 7px 12px;
+  align-items: center;
+  font-size: 13px;
+}
+
+.music-range-control span {
+  color: #c4b5fd;
+  font-variant-numeric: tabular-nums;
+}
+
+.music-range-control input[type="range"] {
+  grid-column: 1 / -1;
+  width: 100%;
+  padding: 0;
+  accent-color: #a78bfa;
+}
+
+.background-music-settings .music-export-note {
+  color: #cbd5e1;
+  font-size: 13px;
+}
+
 .sidebar nav button:focus-visible,
 .primary-button:focus-visible {
   outline: 2px solid #a78bfa;
