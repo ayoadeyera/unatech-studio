@@ -156,7 +156,10 @@ async function mixBackgroundMusic({ audioPath, musicPath, outputPath, teachingPa
     `[1:a]aresample=48000,aformat=sample_fmts=fltp:channel_layouts=stereo,atrim=duration=${formatNumber(duration)},asetpts=PTS-STARTPTS` +
       (fadeIn > 0 ? `,afade=curve=hsin:t=in:st=0:d=${formatNumber(fadeIn)}` : "") +
       (fadeOut > 0 ? `,afade=curve=hsin:t=out:st=${formatNumber(Math.max(0, duration - fadeOut))}:d=${formatNumber(fadeOut)}` : "") +
-      `,volume='${buildPauseAwareVolumeExpression(mappedPauses, normalizedSettings)}':eval=frame[music]`,
+      // volume evaluates once per incoming frame. Reframe to 128 samples
+      // (~2.7 ms at 48 kHz) to keep pause automation smooth without the cost
+      // of a sample-by-sample aeval filter.
+      `,asetnsamples=n=128:p=0,volume='${buildPauseAwareVolumeExpression(mappedPauses, normalizedSettings)}':eval=frame[music]`,
     "[narration][music]amix=inputs=2:duration=first:dropout_transition=0:weights='1 1':normalize=0,alimiter=limit=0.95:attack=5:release=50:level=false,aresample=48000[aout]",
   ];
   await fs.mkdir(path.dirname(outputPath), { recursive: true });

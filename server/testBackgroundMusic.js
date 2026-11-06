@@ -54,6 +54,23 @@ function evaluateVolumeExpression(expression, time) {
   );
 }
 
+async function renderFloatSignal(filterChain) {
+  const { stdout } = await run("ffmpeg", [
+    "-hide_banner", "-loglevel", "error", "-f", "lavfi", "-i", "aevalsrc=0.5:s=48000:d=2",
+    "-af", `${filterChain},aformat=sample_fmts=flt`, "-f", "f32le", "-acodec", "pcm_f32le", "pipe:1",
+  ], { encoding: "buffer", maxBuffer: 2 * 1024 * 1024 });
+  return new Float32Array(stdout.buffer, stdout.byteOffset, Math.floor(stdout.length / 4));
+}
+
+async function measureMaximumGainStep(filterChain) {
+  const samples = await renderFloatSignal(filterChain);
+  let maximumStep = 0;
+  for (let index = 1; index < samples.length; index += 1) {
+    maximumStep = Math.max(maximumStep, Math.abs(samples[index] - samples[index - 1]));
+  }
+  return { maximumStep, sampleCount: samples.length };
+}
+
 async function main() {
   const validId = "eea2b650-0353-4a52-a09c-3aa1e186030a";
   assert.equal(isValidProjectId(validId), true);
@@ -113,6 +130,22 @@ async function main() {
   assert.ok(Math.abs(evaluateVolumeExpression(shortPauseExpression, 2) - duckedMusicLevel) < 1e-9, "short pause starts at the ducked level");
   assert.ok(Math.abs(evaluateVolumeExpression(shortPauseExpression, 2.1) - duckedMusicLevel) < 1e-9, "short pause returns to the ducked level at speech resume");
   assert.ok(shortPausePeak > duckedMusicLevel && shortPausePeak < longPausePeak, "short pause receives a reduced peak because its ramps cannot complete naturally");
+  const steppingExpression = buildPauseAwareVolumeExpression([{ startTime: 0.5, duration: 1 }], {
+    ...settings,
+    transitionDuration: 0.6,
+  });
+  const frameEvaluated = await measureMaximumGainStep(`volume='${steppingExpression}':eval=frame`);
+  const fineFrameEvaluated = await measureMaximumGainStep(`asetnsamples=n=128:p=0,volume='${steppingExpression}':eval=frame`);
+  assert.equal(frameEvaluated.sampleCount, 96_000, "frame stepping reference covers the complete two-second signal");
+  assert.equal(fineFrameEvaluated.sampleCount, frameEvaluated.sampleCount, "fine frame partition preserves audio duration");
+  assert.ok(frameEvaluated.maximumStep > 0.005, `standard FFmpeg audio frames reproduce measurable gain stepping (${frameEvaluated.maximumStep})`);
+  assert.ok(fineFrameEvaluated.maximumStep < 0.003, `128-sample frames smooth gain updates (${fineFrameEvaluated.maximumStep})`);
+  assert.ok(frameEvaluated.maximumStep > fineFrameEvaluated.maximumStep * 3.5, "fine frame updates materially reduce envelope stepping");
+  const fadeSamples = await renderFloatSignal("afade=curve=hsin:t=in:st=0:d=1,afade=curve=hsin:t=out:st=1:d=1");
+  const fadeLevelAt = (time) => fadeSamples[Math.min(fadeSamples.length - 1, Math.round(time * 48_000))] / 0.5;
+  for (const [time, expected] of [[0, 0], [0.25, 0.1464], [0.5, 0.5], [0.75, 0.8536], [1, 1], [1.25, 0.8536], [1.5, 0.5], [1.75, 0.1464], [2, 0]]) {
+    assert.ok(Math.abs(fadeLevelAt(time) - expected) < 0.002, `hsin fade curve has the expected gain at ${time}s`);
+  }
 
   const temporaryDirectory = await fs.mkdtemp(path.join(os.tmpdir(), "unatech-background-music-"));
   try {
@@ -245,7 +278,7 @@ async function main() {
     const sourceVoice = await toneAmplitude(pausedNarration, 1, 440);
     assert.ok(noMusicVoice >= sourceVoice * 0.85, "no-music export preserves narration without the mix stage");
 
-    console.log(`PASS: validation; smooth bounded pause envelopes (2/10/50), short and long pauses, resume-level boundaries, curved fade boundaries; narration retained; limiter peak ${peak.toFixed(2)} dBFS; music/no-music ${result.duration.toFixed(2)}s H.264/AAC exports; source audio preserved.`);
+    console.log(`PASS: validation; smooth bounded pause envelopes (2/10/50), short and long pauses, resume boundaries, gain stepping ${frameEvaluated.maximumStep.toFixed(5)} -> ${fineFrameEvaluated.maximumStep.toFixed(5)}, curved fade boundaries; narration retained; limiter peak ${peak.toFixed(2)} dBFS; music/no-music ${result.duration.toFixed(2)}s H.264/AAC exports; source audio preserved.`);
   } finally {
     await fs.rm(temporaryDirectory, { recursive: true, force: true });
   }
