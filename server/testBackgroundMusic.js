@@ -194,6 +194,54 @@ async function main() {
     const narrationAfterMix = await toneAmplitude(mixedAudio, 1, 440);
     assert.ok(narrationAfterMix >= narrationBeforeMix * 0.9, `amix keeps narration gain clear under music (${narrationAfterMix} vs ${narrationBeforeMix})`);
 
+    const controlAPath = path.join(temporaryDirectory, "controls-no-duck.wav");
+    const controlBPath = path.join(temporaryDirectory, "controls-strong-duck.wav");
+    const controlASettings = { ...DEFAULT_BACKGROUND_MUSIC_SETTINGS, musicVolume: 0.6, narrationDuckingLevel: 1, teachingPauseMusicLevel: 1 };
+    const controlBSettings = { ...controlASettings, narrationDuckingLevel: 0.1 };
+    assert.deepEqual(normalizeBackgroundMusicSettings(controlASettings), controlASettings, "saved control values survive server settings normalization");
+    assert.deepEqual(normalizeBackgroundMusicSettings(controlBSettings), controlBSettings, "low ducking value survives server settings normalization");
+    await Promise.all([
+      mixBackgroundMusic({ audioPath: pausedNarration, musicPath: music, outputPath: controlAPath, teachingPauses: pauses, settings: controlASettings }),
+      mixBackgroundMusic({ audioPath: pausedNarration, musicPath: music, outputPath: controlBPath, teachingPauses: pauses, settings: controlBSettings }),
+    ]);
+    const controlLevels = {
+      speechA: await toneAmplitude(controlAPath, 1, 1000, 0.1),
+      speechB: await toneAmplitude(controlBPath, 1, 1000, 0.1),
+      pauseA: await toneAmplitude(controlAPath, 2.5, 1000, 0.1),
+      pauseB: await toneAmplitude(controlBPath, 2.5, 1000, 0.1),
+      voiceA: await toneAmplitude(controlAPath, 1, 440, 0.1),
+      voiceB: await toneAmplitude(controlBPath, 1, 440, 0.1),
+    };
+    assert.ok(controlLevels.speechA > controlLevels.speechB * 5, `narration ducking setting changes music by a large measurable amount (${controlLevels.speechA} vs ${controlLevels.speechB})`);
+    const speechMusicRatio = controlLevels.speechA / controlLevels.speechB;
+    const pauseMusicRatio = controlLevels.pauseA / controlLevels.pauseB;
+    assert.ok(speechMusicRatio > 9.5 && speechMusicRatio < 10.5, `ducking slider applies its tenfold speech gain change (${speechMusicRatio})`);
+    assert.ok(pauseMusicRatio > 1.1 && pauseMusicRatio < 1.3, `same pause target differs only by the short-pause envelope ramp (${pauseMusicRatio})`);
+    assert.ok(controlLevels.pauseB > controlLevels.speechB * 5, "pause music clearly rises above the ducked speech level");
+
+    const musicVolumeLowPath = path.join(temporaryDirectory, "music-volume-low.wav");
+    const musicVolumeHighPath = path.join(temporaryDirectory, "music-volume-high.wav");
+    const independentBase = { ...DEFAULT_BACKGROUND_MUSIC_SETTINGS, narrationDuckingLevel: 0.1, teachingPauseMusicLevel: 1 };
+    await Promise.all([
+      mixBackgroundMusic({ audioPath: pausedNarration, musicPath: music, outputPath: musicVolumeLowPath, teachingPauses: pauses, settings: { ...independentBase, musicVolume: 0.3 } }),
+      mixBackgroundMusic({ audioPath: pausedNarration, musicPath: music, outputPath: musicVolumeHighPath, teachingPauses: pauses, settings: { ...independentBase, musicVolume: 0.6 } }),
+    ]);
+    const musicVolumeSpeechRatio = (await toneAmplitude(musicVolumeHighPath, 1, 1000, 0.1)) / (await toneAmplitude(musicVolumeLowPath, 1, 1000, 0.1));
+    const musicVolumePauseRatio = (await toneAmplitude(musicVolumeHighPath, 2.5, 1000, 0.1)) / (await toneAmplitude(musicVolumeLowPath, 2.5, 1000, 0.1));
+    assert.ok(Math.abs(musicVolumeSpeechRatio - 2) < 0.1, `music volume slider scales speech-bed level linearly (${musicVolumeSpeechRatio})`);
+    assert.ok(Math.abs(musicVolumePauseRatio - 2) < 0.1, `music volume slider scales pause-bed level linearly (${musicVolumePauseRatio})`);
+
+    const pauseLevelLowPath = path.join(temporaryDirectory, "pause-level-low.wav");
+    const pauseLevelHighPath = path.join(temporaryDirectory, "pause-level-high.wav");
+    await Promise.all([
+      mixBackgroundMusic({ audioPath: pausedNarration, musicPath: music, outputPath: pauseLevelLowPath, teachingPauses: pauses, settings: { ...independentBase, musicVolume: 0.6, teachingPauseMusicLevel: 0.5 } }),
+      mixBackgroundMusic({ audioPath: pausedNarration, musicPath: music, outputPath: pauseLevelHighPath, teachingPauses: pauses, settings: { ...independentBase, musicVolume: 0.6, teachingPauseMusicLevel: 1 } }),
+    ]);
+    const pauseSettingSpeechRatio = (await toneAmplitude(pauseLevelHighPath, 1, 1000, 0.1)) / (await toneAmplitude(pauseLevelLowPath, 1, 1000, 0.1));
+    const pauseSettingPauseRatio = (await toneAmplitude(pauseLevelHighPath, 2.5, 1000, 0.1)) / (await toneAmplitude(pauseLevelLowPath, 2.5, 1000, 0.1));
+    assert.ok(Math.abs(pauseSettingSpeechRatio - 1) < 0.03, `pause-level slider does not alter music during speech (${pauseSettingSpeechRatio})`);
+    assert.ok(Math.abs(pauseSettingPauseRatio - 2) < 0.1, `pause-level slider independently scales music during pauses (${pauseSettingPauseRatio})`);
+
     const fiftyPauses = Array.from({ length: 50 }, (_, index) => ({ time: 0.1 + index * 0.1, duration: 0.01 }));
     const fiftyPausedNarration = path.join(temporaryDirectory, "fifty-pauses.wav");
     const fiftyPauseMix = path.join(temporaryDirectory, "fifty-pause-mix.wav");
@@ -278,7 +326,7 @@ async function main() {
     const sourceVoice = await toneAmplitude(pausedNarration, 1, 440);
     assert.ok(noMusicVoice >= sourceVoice * 0.85, "no-music export preserves narration without the mix stage");
 
-    console.log(`PASS: validation; smooth bounded pause envelopes (2/10/50), short and long pauses, resume boundaries, gain stepping ${frameEvaluated.maximumStep.toFixed(5)} -> ${fineFrameEvaluated.maximumStep.toFixed(5)}, curved fade boundaries; narration retained; limiter peak ${peak.toFixed(2)} dBFS; music/no-music ${result.duration.toFixed(2)}s H.264/AAC exports; source audio preserved.`);
+    console.log(`PASS: validation; pause envelopes (2/10/50), measured control gains speech ${controlLevels.speechA.toFixed(4)} vs ${controlLevels.speechB.toFixed(4)}, pause ${controlLevels.pauseA.toFixed(4)} vs ${controlLevels.pauseB.toFixed(4)}, narration A/B ${controlLevels.voiceA.toFixed(4)}/${controlLevels.voiceB.toFixed(4)}, music-volume ratios ${musicVolumeSpeechRatio.toFixed(2)}/${musicVolumePauseRatio.toFixed(2)}, pause-level ratios ${pauseSettingSpeechRatio.toFixed(2)}/${pauseSettingPauseRatio.toFixed(2)}, gain stepping ${frameEvaluated.maximumStep.toFixed(5)} -> ${fineFrameEvaluated.maximumStep.toFixed(5)}, hsin fades; narration retained; limiter peak ${peak.toFixed(2)} dBFS; music/no-music ${result.duration.toFixed(2)}s H.264/AAC exports; source audio preserved.`);
   } finally {
     await fs.rm(temporaryDirectory, { recursive: true, force: true });
   }
