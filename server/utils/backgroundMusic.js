@@ -4,12 +4,12 @@ const path = require("node:path");
 
 const MAX_BACKGROUND_MUSIC_SIZE = 100 * 1024 * 1024;
 const DEFAULT_BACKGROUND_MUSIC_SETTINGS = Object.freeze({
-  musicVolume: 0.24,
-  narrationDuckingLevel: 0.35,
-  teachingPauseMusicLevel: 0.75,
-  fadeInDuration: 1.25,
-  fadeOutDuration: 1.75,
-  transitionDuration: 0.8,
+  musicVolume: 0.2,
+  narrationDuckingLevel: 0.3,
+  teachingPauseMusicLevel: 0.55,
+  fadeInDuration: 0.8,
+  fadeOutDuration: 1,
+  transitionDuration: 0.6,
 });
 
 const MUSIC_TYPES = Object.freeze({
@@ -71,27 +71,36 @@ function buildPauseAwareVolumeExpression(teachingPauses, settings) {
   const pauseLevel = settings.musicVolume * settings.teachingPauseMusicLevel;
   const duck = formatNumber(duckLevel);
   const pauseDelta = formatNumber(pauseLevel - duckLevel);
-  const envelopes = [];
+  const boosts = [];
   const ordered = [...teachingPauses].sort((a, b) => a.startTime - b.startTime);
 
   for (const pause of ordered) {
     const ramp = Math.min(settings.transitionDuration, pause.duration / 2);
     const start = formatNumber(pause.startTime);
     const end = formatNumber(pause.startTime + pause.duration);
-    if (ramp <= 0) {
-      envelopes.push(`if(between(t,${start},${end}),1,0)`);
+    const effectiveDuration = pause.duration;
+    const effectiveRamp = Math.min(ramp, effectiveDuration / 2);
+    if (settings.transitionDuration <= 0 || effectiveRamp <= 0 || formatNumber(effectiveRamp) === "0") {
+      boosts.push(`(${pauseDelta})*if(between(t,${start},${end}),1,0)`);
       continue;
     }
-    const rampSeconds = formatNumber(ramp);
-    envelopes.push(
-      `min(max(min((t-${start})/${rampSeconds},(${end}-t)/${rampSeconds}),0),1)`,
+    const rampSeconds = formatNumber(effectiveRamp);
+    const rise = `min(max((t-${start})/${rampSeconds},0),1)`;
+    const fall = `min(max((${end}-t)/${rampSeconds},0),1)`;
+    const shortPauseScale = Math.min(1, pause.duration / (2 * settings.transitionDuration));
+    // A half-cosine over the triangular envelope gives zero slope at pause
+    // start, pause end, and (for short pauses) its peak. Short pauses receive
+    // only a proportional part of the requested boost, so music is back at
+    // the narration duck level exactly when speech resumes.
+    boosts.push(
+      `(${pauseDelta}*${formatNumber(shortPauseScale)})*(0.5-0.5*cos(PI*min(${rise},${fall})))`,
     );
   }
-  if (envelopes.length === 0 || pauseDelta === "0") return duck;
+  if (boosts.length === 0 || pauseDelta === "0") return duck;
 
-  // The envelope terms form a linear-size sum. Clamping prevents adjacent
-  // ramps from stacking above the teaching-pause level (or below duck level).
-  const volume = `${duck}+${envelopes.map((envelope) => `(${pauseDelta})*${envelope}`).join("+")}`;
+  // This additive expression grows linearly with pause count. Clamping keeps
+  // neighboring envelopes from stacking beyond the configured level range.
+  const volume = `${duck}+${boosts.join("+")}`;
   const low = formatNumber(Math.min(duckLevel, pauseLevel));
   const high = formatNumber(Math.max(duckLevel, pauseLevel));
   return `min(max(${volume},${low}),${high})`.replace(/,/g, "\\,");
@@ -145,8 +154,8 @@ async function mixBackgroundMusic({ audioPath, musicPath, outputPath, teachingPa
   const filters = [
     "[0:a]aresample=48000,aformat=sample_fmts=fltp:channel_layouts=stereo[narration]",
     `[1:a]aresample=48000,aformat=sample_fmts=fltp:channel_layouts=stereo,atrim=duration=${formatNumber(duration)},asetpts=PTS-STARTPTS` +
-      (fadeIn > 0 ? `,afade=t=in:st=0:d=${formatNumber(fadeIn)}` : "") +
-      (fadeOut > 0 ? `,afade=t=out:st=${formatNumber(Math.max(0, duration - fadeOut))}:d=${formatNumber(fadeOut)}` : "") +
+      (fadeIn > 0 ? `,afade=curve=hsin:t=in:st=0:d=${formatNumber(fadeIn)}` : "") +
+      (fadeOut > 0 ? `,afade=curve=hsin:t=out:st=${formatNumber(Math.max(0, duration - fadeOut))}:d=${formatNumber(fadeOut)}` : "") +
       `,volume='${buildPauseAwareVolumeExpression(mappedPauses, normalizedSettings)}':eval=frame[music]`,
     "[narration][music]amix=inputs=2:duration=first:dropout_transition=0:weights='1 1':normalize=0,alimiter=limit=0.95:attack=5:release=50:level=false,aresample=48000[aout]",
   ];

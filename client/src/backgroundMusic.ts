@@ -8,10 +8,10 @@ export interface BackgroundMusicSettings {
 }
 
 export const DEFAULT_BACKGROUND_MUSIC_SETTINGS: Readonly<BackgroundMusicSettings> = {
-  musicVolume: 0.24,
-  narrationDuckingLevel: 0.35,
-  teachingPauseMusicLevel: 0.75,
-  fadeInDuration: 1.25,
-  fadeOutDuration: 1.75,
-  transitionDuration: 0.8,
+  musicVolume: 0.2,
+  narrationDuckingLevel: 0.3,
+  teachingPauseMusicLevel: 0.55,
+  fadeInDuration: 0.8,
+  fadeOutDuration: 1,
+  transitionDuration: 0.6,
 };
