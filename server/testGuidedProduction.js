@@ -3,6 +3,7 @@ const assert = require("node:assert/strict");
 async function main() {
   const {
     getGuidedStepState,
+    getGuidedStepStatusLabel,
     updateProjectGuidedStep,
     validateGuidedExport,
   } = await import("../client/src/guidedProduction.ts");
@@ -41,6 +42,23 @@ async function main() {
   assert.equal(getGuidedStepState("pauses", readyProject, validation), "complete");
   assert.equal(getGuidedStepState("music", readyProject, validation), "complete");
   assert.equal(getGuidedStepState("export", readyProject, validation), "complete");
+  const unavailableDurationValidation = validateGuidedExport(readyProject, null);
+  assert.equal(unavailableDurationValidation.ready, false, "unknown narration duration cannot pass export readiness");
+  assert.equal(unavailableDurationValidation.outputDuration, null);
+  assert(unavailableDurationValidation.issues.some((issue) => issue.code === "narration-duration-unavailable"));
+  for (const invalidDuration of [0, Number.NaN, Number.POSITIVE_INFINITY, -1]) {
+    const invalidDurationValidation = validateGuidedExport(readyProject, invalidDuration);
+    assert.equal(invalidDurationValidation.ready, false, `duration ${invalidDuration} must block export readiness`);
+    assert(invalidDurationValidation.issues.some((issue) => issue.code === "narration-duration-unavailable"));
+  }
+  const unavailableNarrationStatus = getGuidedStepState("narration", readyProject, unavailableDurationValidation);
+  assert.equal(unavailableNarrationStatus, "needs-attention");
+  assert.match(getGuidedStepStatusLabel("narration", unavailableNarrationStatus, unavailableDurationValidation), /Required/);
+  assert.match(getGuidedStepStatusLabel("segments", "recommended"), /Optional/);
+  assert.match(getGuidedStepStatusLabel("pauses", "recommended"), /Optional/);
+  assert.match(getGuidedStepStatusLabel("music", "recommended"), /Optional/);
+  assert.match(getGuidedStepStatusLabel("visuals", "needs-attention"), /Required/);
+  assert.match(getGuidedStepStatusLabel("export", "needs-attention"), /Required/);
   const missingUploadValidation = validateGuidedExport(readyProject, 10, {
     visualUrls: ["/intro.png"],
     musicFilenames: [],

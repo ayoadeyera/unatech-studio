@@ -39,6 +39,8 @@ export interface GuidedExportValidation {
   ready: boolean;
 }
 
+export type GuidedStepStatus = "complete" | "recommended" | "needs-attention";
+
 export interface GuidedProjectRecord {
   id: string;
   guidedProduction?: { activeStep: GuidedStepId };
@@ -78,6 +80,11 @@ export function validateGuidedExport(
 
   if (!project?.narration?.filename) {
     issues.push({ code: "missing-narration", message: "Upload narration before exporting." });
+  } else if (usableDuration === null) {
+    issues.push({
+      code: "narration-duration-unavailable",
+      message: "Narration duration is loading or unavailable. Wait for the audio metadata or reselect the narration before exporting.",
+    });
   }
   if (scenes.length < 2) {
     issues.push({ code: "too-few-scenes", message: "Add at least two visual scenes." });
@@ -165,21 +172,62 @@ export function getGuidedStepState(
   step: GuidedStepId,
   project: GuidedProjectSnapshot | null | undefined,
   validation: GuidedExportValidation,
-): "complete" | "recommended" | "needs-attention" {
+): GuidedStepStatus {
   switch (step) {
     case "narration":
-      return project?.narration?.filename ? "complete" : "needs-attention";
-    case "segments":
-      return (project?.narrationSegments?.length ?? 0) > 0 ? "complete" : "recommended";
-    case "visuals":
-      return validation.sceneCount >= 2 && validation.populatedSceneCount === validation.sceneCount
+      return project?.narration?.filename && !validation.issues.some((issue) => issue.code === "narration-duration-unavailable")
         ? "complete"
         : "needs-attention";
+    case "segments":
+      return (project?.narrationSegments?.length ?? 0) > 0 ? "complete" : "recommended";
+    case "visuals": {
+      const visualIssueCodes = new Set([
+        "too-few-scenes", "too-many-scenes", "missing-scene-media", "missing-uploaded-media",
+        "invalid-scene-timing", "overlapping-scenes",
+      ]);
+      return validation.sceneCount >= 2 &&
+        validation.populatedSceneCount === validation.sceneCount &&
+        !validation.issues.some((issue) => visualIssueCodes.has(issue.code))
+        ? "complete"
+        : "needs-attention";
+    }
     case "pauses":
-      return (project?.teachingPauses?.length ?? 0) > 0 ? "complete" : "recommended";
+      if ((project?.teachingPauses?.length ?? 0) === 0) return "recommended";
+      return validation.issues.some((issue) => issue.code === "invalid-pause-timing" || issue.code === "too-many-pauses" || issue.code === "timeline-too-long")
+        ? "needs-attention"
+        : "complete";
     case "music":
-      return project?.backgroundMusic?.filename ? "complete" : "recommended";
+      if (!project?.backgroundMusic?.filename) return "recommended";
+      return validation.issues.some((issue) => issue.code === "missing-background-music") ? "needs-attention" : "complete";
     case "export":
       return validation.ready ? "complete" : "needs-attention";
+  }
+}
+
+export function getGuidedStepStatusLabel(
+  step: GuidedStepId,
+  status: GuidedStepStatus,
+  validation?: GuidedExportValidation,
+): string {
+  if (status === "complete") return step === "export" ? "Ready to export" : "Complete";
+  if (status === "needs-attention") {
+    switch (step) {
+      case "narration": return validation?.issues.some((issue) => issue.code === "missing-narration")
+        ? "Required — upload narration"
+        : "Required — wait for valid narration duration";
+      case "visuals": return "Required — assign media and fix timing";
+      case "pauses": return "Check pause timing";
+      case "music": return "Selected track unavailable";
+      case "export": return "Required checks remain";
+      case "segments": return "Review segment suggestions";
+    }
+  }
+  switch (step) {
+    case "segments": return "Optional — suggest segments";
+    case "pauses": return "Optional — none added";
+    case "music": return "Optional — no track selected";
+    case "narration": return "Required — upload narration";
+    case "visuals": return "Required — assign visuals";
+    case "export": return "Required — resolve checks";
   }
 }

@@ -8,7 +8,7 @@ import {
   type AlignmentMediaAsset,
 } from "./visualAlignment";
 import { DEFAULT_BACKGROUND_MUSIC_SETTINGS, type BackgroundMusicSettings } from "./backgroundMusic";
-import { getGuidedStepState, updateProjectGuidedStep, validateGuidedExport, type GuidedStepId } from "./guidedProduction";
+import { getGuidedStepState, getGuidedStepStatusLabel, updateProjectGuidedStep, validateGuidedExport, type GuidedStepId } from "./guidedProduction";
 import "./App.css";
 
 type Preset = "Focused Teaching" | "Entertaining Presenter" | "High-Energy Explainer";
@@ -136,6 +136,7 @@ function App() {
   const [alignmentMessage, setAlignmentMessage] = useState("");
 
   const [audioDuration, setAudioDuration] = useState<number | null>(null);
+  const [narrationDurationStatus, setNarrationDurationStatus] = useState<"loading" | "ready" | "unavailable">("loading");
 
   const [currentTime, setCurrentTime] = useState(0);
   const [previewSyncRevision, setPreviewSyncRevision] = useState(0);
@@ -404,6 +405,7 @@ function App() {
     
     setSelectedProjectId(projectId);
     setAudioDuration(null);
+    setNarrationDurationStatus("loading");
     setCurrentTime(0);
     setSelectedPauseId(null);
     setAudioFile(null);
@@ -1070,6 +1072,8 @@ function App() {
       localStorage.setItem(STORAGE_KEY, JSON.stringify(updatedProjects));
 
       setAudioFile(null);
+      setAudioDuration(null);
+      setNarrationDurationStatus("loading");
       setCurrentTime(0);
       setUploadMessage("Narration uploaded successfully!");
     } catch (error) {
@@ -1307,15 +1311,7 @@ function App() {
                   ["export", "6. Review and export", "Check media, timing, and estimated output duration."],
                 ] as const).map(([step, label, description]) => {
                   const status = getGuidedStepState(step, selectedProject, exportValidation);
-                  const statusLabel = status === "complete"
-                    ? "Complete"
-                    : status === "needs-attention"
-                      ? "Needs attention"
-                      : step === "segments"
-                        ? "Recommended — not suggested yet"
-                        : step === "pauses"
-                          ? "Optional — none added"
-                          : "Optional — no track selected";
+                  const statusLabel = getGuidedStepStatusLabel(step, status, exportValidation);
                   return (
                     <li key={step} className={`guided-step guided-step-${status}`} aria-current={(selectedProject?.guidedProduction?.activeStep ?? "narration") === step ? "step" : undefined}>
                       <div className="guided-step-copy">
@@ -1534,12 +1530,12 @@ function App() {
                       onLoadedMetadata={(event) => {
                         const audio = event.currentTarget;
                         const duration = audio.duration;
+                        const durationIsValid = Number.isFinite(duration) && duration > 0;
 
-                        setAudioDuration(
-                          Number.isFinite(duration) ? duration : null
-                        );
+                        setAudioDuration(durationIsValid ? duration : null);
+                        setNarrationDurationStatus(durationIsValid ? "ready" : "unavailable");
 
-                        if (!selectedProjectId || !Number.isFinite(duration)) {
+                        if (!selectedProjectId || !durationIsValid) {
                           return;
                         }
 
@@ -1562,7 +1558,10 @@ function App() {
                           String(restoredPosition)
                         );
                       }}
-                      onError={() => setAudioDuration(null)}
+                      onError={() => {
+                        setAudioDuration(null);
+                        setNarrationDurationStatus("unavailable");
+                      }}
                       style={{ width: "100%", marginTop: "12px" }}
                       src={`${import.meta.env.VITE_API_URL}${projects.find(
                         (project) => project.id === selectedProjectId
@@ -1581,9 +1580,11 @@ function App() {
 
                       <p>
                         <strong>Duration:</strong>{" "}
-                        {audioDuration !== null
+                        {audioDuration !== null && Number.isFinite(audioDuration) && audioDuration > 0
                           ? formatDuration(audioDuration)
-                          : "Loading or unavailable"}
+                          : narrationDurationStatus === "loading"
+                            ? "Loading narration duration…"
+                            : "Unavailable — reselect narration or use a supported audio file"}
                       </p>
 
                       <p>
@@ -2210,13 +2211,19 @@ function App() {
               <div className="export-readiness" role="status" aria-live="polite">
                 <h4>Export readiness</h4>
                 <dl>
-                  <div><dt>Narration</dt><dd>{selectedProject?.narration?.originalName ?? "Missing narration"}{audioDuration !== null ? ` · ${formatDuration(audioDuration)}` : " · duration loading or unavailable"}</dd></div>
+                  <div><dt>Narration</dt><dd>{selectedProject?.narration?.originalName ?? "Missing narration"}{selectedProject?.narration?.filename
+                    ? audioDuration !== null && Number.isFinite(audioDuration) && audioDuration > 0
+                      ? ` · ${formatDuration(audioDuration)}`
+                      : narrationDurationStatus === "loading"
+                        ? " · duration loading from narration audio"
+                        : " · duration unavailable; reselect a supported narration file"
+                    : ""}</dd></div>
                   <div><dt>Visuals</dt><dd>{exportValidation.populatedSceneCount} of {exportValidation.sceneCount} scenes have media</dd></div>
                   <div><dt>Teaching pauses</dt><dd>{exportValidation.pauseCount} pause{exportValidation.pauseCount === 1 ? "" : "s"} · {formatDuration(exportValidation.pauseDuration)} added</dd></div>
                   <div><dt>Background music</dt><dd>{selectedProject?.backgroundMusic?.originalName
                     ? `${selectedProject.backgroundMusic.originalName} · volume ${Math.round((selectedProject.backgroundMusicSettings?.musicVolume ?? DEFAULT_BACKGROUND_MUSIC_SETTINGS.musicVolume) * 100)}%, under speech ${Math.round((selectedProject.backgroundMusicSettings?.narrationDuckingLevel ?? DEFAULT_BACKGROUND_MUSIC_SETTINGS.narrationDuckingLevel) * 100)}%, pauses ${Math.round((selectedProject.backgroundMusicSettings?.teachingPauseMusicLevel ?? DEFAULT_BACKGROUND_MUSIC_SETTINGS.teachingPauseMusicLevel) * 100)}%`
                     : "No music; narration exports as usual"}</dd></div>
-                  <div><dt>Estimated output duration</dt><dd>{exportValidation.outputDuration !== null ? formatDuration(exportValidation.outputDuration) : "Unavailable until narration duration loads"}</dd></div>
+                  <div><dt>Estimated output duration</dt><dd>{exportValidation.outputDuration !== null ? formatDuration(exportValidation.outputDuration) : "Unavailable until a valid narration duration is loaded"}</dd></div>
                 </dl>
                 {exportValidation.issues.length > 0 && (
                   <ul className="export-validation-issues">
