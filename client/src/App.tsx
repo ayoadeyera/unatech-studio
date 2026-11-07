@@ -8,6 +8,7 @@ import {
   type AlignmentMediaAsset,
 } from "./visualAlignment";
 import { DEFAULT_BACKGROUND_MUSIC_SETTINGS, type BackgroundMusicSettings } from "./backgroundMusic";
+import { getGuidedStepState, updateProjectGuidedStep, validateGuidedExport, type GuidedStepId } from "./guidedProduction";
 import "./App.css";
 
 type Preset = "Focused Teaching" | "Entertaining Presenter" | "High-Energy Explainer";
@@ -63,6 +64,7 @@ interface Project {
   };
   backgroundMusic?: { filename: string; originalName: string };
   backgroundMusicSettings?: BackgroundMusicSettings;
+  guidedProduction?: { activeStep: GuidedStepId };
 }
 
 
@@ -174,6 +176,15 @@ function App() {
   );
   const alignmentChangeCount =
     alignmentPreview.addedScenes.length + alignmentPreview.filledSlots.length;
+  const exportValidation = useMemo(
+    () => validateGuidedExport(selectedProject, audioDuration, {
+      visualUrls: visualLibraryMessage === "Loading project media…"
+        ? null
+        : visualLibrary.map((asset) => asset.url),
+      musicFilenames: musicLibrary.map((asset) => asset.filename),
+    }),
+    [selectedProject, audioDuration, visualLibrary, visualLibraryMessage, musicLibrary],
+  );
 
   const orderedVisualScenes = useMemo(
     () => [...visualScenes].sort((a, b) => a.startTime - b.startTime),
@@ -365,6 +376,7 @@ function App() {
       backgroundMusicSettings: { ...DEFAULT_BACKGROUND_MUSIC_SETTINGS },
       teachingPauses: [],
       visualScenes: [],
+      guidedProduction: { activeStep: "narration" },
     };
 
     const updated = [project, ...projects];
@@ -773,11 +785,14 @@ function App() {
     );
   }
 
-  function applyVisualAlignment() {
-    if (!selectedProjectId || !selectedProject || alignmentChangeCount === 0) return;
+  function applyVisualAlignment(mode: "sequential" | "manual" = alignmentMode) {
+    if (!selectedProjectId || !selectedProject) return;
+    const assignments = mode === "sequential"
+      ? createSequentialVisualAssignments(narrationSegments, selectedAlignmentAssets)
+      : createManualVisualAssignments(narrationSegments, manualAlignmentAssets);
     const result = planVisualAlignment(
       narrationSegments,
-      alignmentAssignments,
+      assignments,
       visualLibrary,
       selectedProject.visualScenes ?? [],
       () => crypto.randomUUID(),
@@ -794,6 +809,17 @@ function App() {
     setAlignmentMessage(
       `Filled ${result.filledSlots.length} existing slot${result.filledSlots.length === 1 ? "" : "s"} and added ${result.addedScenes.length} new scene${result.addedScenes.length === 1 ? "" : "s"}. ${result.skipped.length} assignment${result.skipped.length === 1 ? " was" : "s were"} skipped; existing scene details and populated media were kept.`,
     );
+  }
+
+  function setGuidedProductionStep(step: GuidedStepId) {
+    if (!selectedProjectId) return;
+    const updatedProjects = updateProjectGuidedStep(projects, selectedProjectId, step);
+    setProjects(updatedProjects);
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(updatedProjects));
+    const targetId = `guided-step-${step}`;
+    window.requestAnimationFrame(() => {
+      document.getElementById(targetId)?.scrollIntoView({ behavior: "smooth", block: "start" });
+    });
   }
 
   function toggleAlignmentAsset(assetId: string) {
@@ -1058,23 +1084,12 @@ function App() {
 
   async function generateVideo() {
     if (!selectedProject || rendering) return;
-
-    if (!selectedProject.narration?.filename) {
-      setRenderMessage("Upload narration before generating a video.");
+    if (!exportValidation.ready) {
+      setRenderMessage(`Resolve these items before export: ${exportValidation.issues.map((issue) => issue.message).join(" ")}`);
       return;
     }
 
     const scenes = selectedProject.visualScenes ?? [];
-
-    if (scenes.length < 2) {
-      setRenderMessage("Add at least two visual scenes.");
-      return;
-    }
-
-    if (scenes.some((scene) => !scene.mediaUrl)) {
-      setRenderMessage("Upload media for every visual scene.");
-      return;
-    }
 
     setRenderSeconds(0);
     setRendering(true);
@@ -1272,8 +1287,52 @@ function App() {
             <p>
               {projects.find((project) => project.id === selectedProjectId)?.title}
             </p>
+            <section className="guided-production" aria-labelledby="guided-production-heading">
+              <div className="guided-production-header">
+                <div>
+                  <h3 id="guided-production-heading">Guided Production</h3>
+                  <p>Work through each stage. Your progress is saved with this project; optional pauses and music can be skipped.</p>
+                </div>
+                <span className={`guided-ready-badge ${exportValidation.ready ? "is-ready" : "is-incomplete"}`}>
+                  {exportValidation.ready ? "Ready to export" : `${exportValidation.issues.length} item${exportValidation.issues.length === 1 ? "" : "s"} to resolve`}
+                </span>
+              </div>
+              <ol className="guided-step-list">
+                {([
+                  ["narration", "1. Narration", "Upload or confirm the narration audio."],
+                  ["segments", "2. Segmentation", "Suggest and adjust audio activity boundaries; this does not transcribe speech."],
+                  ["visuals", "3. Visual assignment", "Choose assets and preview safe timestamped assignments."],
+                  ["pauses", "4. Teaching pauses", "Add pauses where needed; existing pause behavior is preserved."],
+                  ["music", "5. Background music", "Choose a project track and adjust export mixing levels, or skip music."],
+                  ["export", "6. Review and export", "Check media, timing, and estimated output duration."],
+                ] as const).map(([step, label, description]) => {
+                  const status = getGuidedStepState(step, selectedProject, exportValidation);
+                  const statusLabel = status === "complete"
+                    ? "Complete"
+                    : status === "needs-attention"
+                      ? "Needs attention"
+                      : step === "segments"
+                        ? "Recommended — not suggested yet"
+                        : step === "pauses"
+                          ? "Optional — none added"
+                          : "Optional — no track selected";
+                  return (
+                    <li key={step} className={`guided-step guided-step-${status}`} aria-current={(selectedProject?.guidedProduction?.activeStep ?? "narration") === step ? "step" : undefined}>
+                      <div className="guided-step-copy">
+                        <strong>{label}</strong>
+                        <span className="guided-step-status">{statusLabel}</span>
+                        <p>{description}</p>
+                      </div>
+                      <button type="button" className="secondary-button" onClick={() => setGuidedProductionStep(step)}>
+                        {(selectedProject?.guidedProduction?.activeStep ?? "narration") === step ? "Current step" : "Open step"}
+                      </button>
+                    </li>
+                  );
+                })}
+              </ol>
+            </section>
             <div className="project-form">
-              <h3>Audio Studio</h3>
+              <h3 id="guided-step-narration">Audio Studio</h3>
               <p>Import your ElevenLabs narration (MP3 or WAV, maximum 100 MB).</p>
 
               <label htmlFor="narration-file">Select Narration</label>
@@ -1299,7 +1358,7 @@ function App() {
 
               {uploadMessage && <p role="status">{uploadMessage}</p>}
 
-              <section className="background-music-settings" aria-labelledby="background-music-heading">
+              <section className="background-music-settings" id="guided-step-music" aria-labelledby="background-music-heading">
                 <h4 id="background-music-heading">Background Music</h4>
                 <p>
                   Upload MP3 or WAV music for this project. Mixing effects are applied during MP4 export;
@@ -1538,7 +1597,7 @@ function App() {
                       </p>
                     </div>
 
-                    <section className="narration-segmentation" aria-labelledby="narration-segments-heading">
+                    <section className="narration-segmentation" id="guided-step-segments" aria-labelledby="narration-segments-heading">
                       <h4 id="narration-segments-heading">Automatic Narration Segments</h4>
                       <p>
                         FFmpeg suggests audio activity ranges from silence boundaries. These timestamps do not include speech transcription or semantic meaning.
@@ -1691,7 +1750,7 @@ function App() {
                           Current Position: {formatDuration(currentTime)}
                         </p>
 
-                        <div className="teaching-pauses">
+                        <div className="teaching-pauses" id="guided-step-pauses">
                           <button
                             type="button"
                             className="primary-button"
@@ -1797,7 +1856,7 @@ function App() {
                 )}
             </div>
             <section className="visual-scenes-section">
-              <div className="alignment-panel">
+              <div className="alignment-panel" id="guided-step-visuals">
                 <div className="visual-scenes-header">
                   <div>
                     <h3>Project Visual Library</h3>
@@ -1855,6 +1914,9 @@ function App() {
                       </div>
                     )}
                     <h4>Assignment preview</h4>
+                    <p className="alignment-render-note">{alignmentMode === "sequential"
+                      ? "Sequential assignment follows the selected asset order. It only fills empty matching narration slots or adds non-overlapping scenes; populated scenes and manual edits are kept."
+                      : "Manual mapping applies only the asset chosen for each segment. Populated scenes and manual edits are kept."}</p>
                     <ul className="alignment-preview-list">
                       {narrationSegments.map((segment, index) => {
                         const assignment = alignmentAssignments[index];
@@ -1876,7 +1938,10 @@ function App() {
                       })}
                     </ul>
                     <p className="alignment-render-note">Short video clips loop to fill their scene duration; the renderer preserves aspect ratio with letterboxing/pillarboxing.</p>
-                    <button type="button" className="primary-button" onClick={applyVisualAlignment} disabled={alignmentChangeCount === 0}>Apply proposed scene assignments ({alignmentChangeCount})</button>
+                    <button type="button" className="primary-button" onClick={() => applyVisualAlignment()} disabled={alignmentChangeCount === 0}>Apply proposed scene assignments ({alignmentChangeCount})</button>
+                    {alignmentMode !== "sequential" && (
+                      <button type="button" className="secondary-button" onClick={() => setAlignmentMode("sequential")}>Preview selected assets sequentially</button>
+                    )}
                     {alignmentMessage && <p className="alignment-message" role="status">{alignmentMessage}</p>}
                   </>
                 )}
@@ -2135,17 +2200,36 @@ function App() {
             </section>
 
 
-            <section className="video-export-section">
+            <section className="video-export-section" id="guided-step-export">
               <h3>Video Export</h3>
 
               <p>
                 Combine your narration and visual scenes into an MP4 video.
               </p>
 
+              <div className="export-readiness" role="status" aria-live="polite">
+                <h4>Export readiness</h4>
+                <dl>
+                  <div><dt>Narration</dt><dd>{selectedProject?.narration?.originalName ?? "Missing narration"}{audioDuration !== null ? ` · ${formatDuration(audioDuration)}` : " · duration loading or unavailable"}</dd></div>
+                  <div><dt>Visuals</dt><dd>{exportValidation.populatedSceneCount} of {exportValidation.sceneCount} scenes have media</dd></div>
+                  <div><dt>Teaching pauses</dt><dd>{exportValidation.pauseCount} pause{exportValidation.pauseCount === 1 ? "" : "s"} · {formatDuration(exportValidation.pauseDuration)} added</dd></div>
+                  <div><dt>Background music</dt><dd>{selectedProject?.backgroundMusic?.originalName
+                    ? `${selectedProject.backgroundMusic.originalName} · volume ${Math.round((selectedProject.backgroundMusicSettings?.musicVolume ?? DEFAULT_BACKGROUND_MUSIC_SETTINGS.musicVolume) * 100)}%, under speech ${Math.round((selectedProject.backgroundMusicSettings?.narrationDuckingLevel ?? DEFAULT_BACKGROUND_MUSIC_SETTINGS.narrationDuckingLevel) * 100)}%, pauses ${Math.round((selectedProject.backgroundMusicSettings?.teachingPauseMusicLevel ?? DEFAULT_BACKGROUND_MUSIC_SETTINGS.teachingPauseMusicLevel) * 100)}%`
+                    : "No music; narration exports as usual"}</dd></div>
+                  <div><dt>Estimated output duration</dt><dd>{exportValidation.outputDuration !== null ? formatDuration(exportValidation.outputDuration) : "Unavailable until narration duration loads"}</dd></div>
+                </dl>
+                {exportValidation.issues.length > 0 && (
+                  <ul className="export-validation-issues">
+                    {exportValidation.issues.map((issue) => <li key={issue.code}>{issue.message}</li>)}
+                  </ul>
+                )}
+                {exportValidation.ready && <p className="export-ready-message">All required media and timing checks passed. Export uses the existing mixed-media renderer.</p>}
+              </div>
+
               <button
                 className="primary-button"
                 onClick={generateVideo}
-                disabled={rendering}
+                disabled={rendering || !exportValidation.ready}
               >
                 {rendering ? "Generating Video..." : "Generate Video"}
               </button>

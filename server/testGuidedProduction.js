@@ -1,0 +1,149 @@
+const assert = require("node:assert/strict");
+
+async function main() {
+  const {
+    getGuidedStepState,
+    updateProjectGuidedStep,
+    validateGuidedExport,
+  } = await import("../client/src/guidedProduction.ts");
+  const {
+    createSequentialVisualAssignments,
+    planVisualAlignment,
+  } = await import("../client/src/visualAlignment.ts");
+
+  const readyProject = {
+    id: "ready",
+    title: "Ready course",
+    narration: { filename: "narration.wav", originalName: "lesson.wav" },
+    narrationSegments: [{ startTime: 0, endTime: 5, duration: 5 }],
+    visualScenes: [
+      { title: "Intro", startTime: 0, duration: 5, mediaUrl: "/intro.png" },
+      { title: "Example", startTime: 5, duration: 5, mediaUrl: "/example.mp4" },
+    ],
+    teachingPauses: [{ time: 4, duration: 2, label: "Reflect" }],
+    backgroundMusic: { filename: "music.mp3", originalName: "music.mp3" },
+    backgroundMusicSettings: {
+      musicVolume: 0.2,
+      narrationDuckingLevel: 0.3,
+      teachingPauseMusicLevel: 0.55,
+    },
+  };
+  const validation = validateGuidedExport(readyProject, 10);
+  assert.equal(validation.ready, true, "valid narration, scenes, timing, and pauses pass readiness checks");
+  assert.equal(validation.sceneCount, 2);
+  assert.equal(validation.populatedSceneCount, 2);
+  assert.equal(validation.pauseCount, 1);
+  assert.equal(validation.pauseDuration, 2);
+  assert.equal(validation.outputDuration, 12, "estimated duration includes inserted pause time");
+  assert.equal(getGuidedStepState("narration", readyProject, validation), "complete");
+  assert.equal(getGuidedStepState("segments", readyProject, validation), "complete");
+  assert.equal(getGuidedStepState("visuals", readyProject, validation), "complete");
+  assert.equal(getGuidedStepState("pauses", readyProject, validation), "complete");
+  assert.equal(getGuidedStepState("music", readyProject, validation), "complete");
+  assert.equal(getGuidedStepState("export", readyProject, validation), "complete");
+  const missingUploadValidation = validateGuidedExport(readyProject, 10, {
+    visualUrls: ["/intro.png"],
+    musicFilenames: [],
+  });
+  assert(missingUploadValidation.issues.some((issue) => issue.code === "missing-uploaded-media"));
+  assert(missingUploadValidation.issues.some((issue) => issue.code === "missing-background-music"));
+
+  const missingProject = {
+    id: "missing",
+    visualScenes: [
+      { title: "Empty slot", startTime: 0, duration: 2, mediaUrl: null },
+    ],
+    teachingPauses: [{ time: 20, duration: 2 }],
+  };
+  const missingValidation = validateGuidedExport(missingProject, 10);
+  const missingCodes = missingValidation.issues.map((issue) => issue.code);
+  assert(missingCodes.includes("missing-narration"));
+  assert(missingCodes.includes("too-few-scenes"));
+  assert(missingCodes.includes("missing-scene-media"));
+  assert(missingCodes.includes("invalid-pause-timing"));
+  assert.equal(missingValidation.ready, false, "missing required inputs prevent export readiness");
+
+  const overlappingProject = {
+    ...readyProject,
+    visualScenes: [
+      { title: "Manual first", startTime: 0, duration: 6, mediaUrl: "/manual.png" },
+      { title: "Second", startTime: 5, duration: 5, mediaUrl: "/second.png" },
+    ],
+    teachingPauses: [],
+  };
+  const overlapValidation = validateGuidedExport(overlappingProject, 10);
+  assert(overlapValidation.issues.some((issue) => issue.code === "overlapping-scenes"));
+  assert.equal(getGuidedStepState("pauses", overlappingProject, overlapValidation), "recommended", "pauses remain optional");
+  assert.equal(getGuidedStepState("music", { ...overlappingProject, backgroundMusic: undefined }, overlapValidation), "recommended", "music remains optional");
+
+  const sceneOutsideNarration = validateGuidedExport({
+    ...readyProject,
+    visualScenes: [
+      { title: "First", startTime: 0, duration: 5, mediaUrl: "/first.png" },
+      { title: "Past narration", startTime: 5, duration: 6, mediaUrl: "/second.png" },
+    ],
+  }, 10);
+  assert(sceneOutsideNarration.issues.some((issue) => issue.code === "invalid-scene-timing"));
+
+  const tooLongValidation = validateGuidedExport({
+    ...readyProject,
+    teachingPauses: Array.from({ length: 2 }, (_, index) => ({ time: index + 1, duration: 30 })),
+  }, 250);
+  assert(tooLongValidation.issues.some((issue) => issue.code === "timeline-too-long"));
+
+  const projects = [
+    { ...readyProject, guidedProduction: { activeStep: "visuals" } },
+    { ...missingProject, guidedProduction: { activeStep: "narration" } },
+  ];
+  const updated = updateProjectGuidedStep(projects, "ready", "export");
+  assert.equal(updated[0].guidedProduction.activeStep, "export");
+  assert.equal(updated[1].guidedProduction.activeStep, "narration", "workflow progress is scoped to its project");
+  assert.equal(updated[0].visualScenes, projects[0].visualScenes, "changing workflow step preserves existing scene objects and media");
+  assert.equal(projects[0].guidedProduction.activeStep, "visuals", "workflow updates do not mutate stored project records");
+
+  const guidedSegments = [
+    { id: "segment-a", startTime: 0, endTime: 3, duration: 3 },
+    { id: "segment-b", startTime: 4, endTime: 7, duration: 3 },
+  ];
+  const guidedAssets = [
+    { id: "asset-a", filename: "a.png", originalName: "a.png", url: "/a.png", size: 1, mediaType: "image" },
+    { id: "asset-b", filename: "b.mp4", originalName: "b.mp4", url: "/b.mp4", size: 1, mediaType: "video" },
+  ];
+  const emptySlot = {
+    id: "keep-slot-id", title: "Edited segment title", startTime: 0, duration: 3,
+    mediaType: "image", mediaUrl: null, originalName: null, narrationSegmentId: "segment-a",
+    customEditorNote: "keep this edit",
+  };
+  const manualScene = {
+    id: "manual-existing", title: "Manual scene", startTime: 8, duration: 1,
+    mediaType: "image", mediaUrl: "/manual.png", originalName: "manual.png",
+  };
+  const sequential = planVisualAlignment(
+    guidedSegments,
+    createSequentialVisualAssignments(guidedSegments, ["asset-a", "asset-b"]),
+    guidedAssets,
+    [emptySlot, manualScene],
+    (segmentId) => `new-${segmentId}`,
+  );
+  assert.equal(sequential.filledSlots.length, 1, "guided sequential assignment fills the matching empty slot");
+  assert.equal(sequential.addedScenes.length, 1, "guided sequential assignment adds a new slot for the remaining segment");
+  assert.equal(sequential.filledSlots[0].id, emptySlot.id);
+  assert.equal(sequential.filledSlots[0].title, emptySlot.title);
+  assert.equal(sequential.filledSlots[0].customEditorNote, emptySlot.customEditorNote);
+  assert.deepEqual(sequential.scenes.find((scene) => scene.id === manualScene.id), manualScene, "manual media stays unchanged");
+  const repeated = planVisualAlignment(
+    guidedSegments,
+    createSequentialVisualAssignments(guidedSegments, ["asset-a", "asset-b"]),
+    guidedAssets,
+    sequential.scenes,
+    (segmentId) => `duplicate-${segmentId}`,
+  );
+  assert.equal(repeated.addedScenes.length + repeated.filledSlots.length, 0, "reapplying assignments does not duplicate or overwrite populated scenes");
+
+  console.log("PASS: guided readiness, scene/media validation, overlap and duration checks, optional pauses/music, and project-scoped progress persistence.");
+}
+
+main().catch((error) => {
+  console.error(error);
+  process.exitCode = 1;
+});

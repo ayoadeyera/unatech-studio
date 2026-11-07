@@ -9,7 +9,8 @@
     "test:segmentation": "node testNarrationSegmentation.js",
     "test:visual-alignment": "node testVisualAlignment.js",
     "test:visual-alignment:export": "node testVisualAlignmentExport.js",
-    "test:background-music": "node testBackgroundMusic.js && node testBackgroundMusicApi.js"
+    "test:background-music": "node testBackgroundMusic.js && node testBackgroundMusicApi.js",
+    "test:guided-production": "node testGuidedProduction.js"
 },
   "keywords": [],
   "author": "",

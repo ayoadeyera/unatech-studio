@@ -212,6 +212,164 @@ a {
   color: #c4b5fd;
 }
 
+.guided-production {
+  margin: 22px 0 30px;
+  padding: 20px;
+  border: 1px solid #394765;
+  border-radius: 12px;
+  background: linear-gradient(130deg, #1b2540, #171d30);
+}
+
+.guided-production-header,
+.guided-step {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.guided-production-header h3,
+.guided-production-header p,
+.guided-step p {
+  margin: 0;
+}
+
+.guided-production-header p,
+.guided-step p {
+  color: #aeb8ce;
+  line-height: 1.45;
+}
+
+.guided-ready-badge,
+.guided-step-status {
+  display: inline-block;
+  border-radius: 999px;
+  padding: 5px 10px;
+  font-size: 12px;
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+.guided-ready-badge.is-ready,
+.guided-step-complete .guided-step-status {
+  color: #bbf7d0;
+  background: #14532d;
+}
+
+.guided-ready-badge.is-incomplete,
+.guided-step-needs-attention .guided-step-status {
+  color: #fde68a;
+  background: #713f12;
+}
+
+.guided-step-recommended .guided-step-status {
+  color: #cbd5e1;
+  background: #334155;
+}
+
+.guided-step-list {
+  display: grid;
+  gap: 8px;
+  margin: 18px 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.guided-step {
+  padding: 12px;
+  border: 1px solid #303b55;
+  border-radius: 9px;
+  background: #10182a;
+}
+
+.guided-step[aria-current="step"] {
+  border-color: #8b5cf6;
+  box-shadow: 0 0 0 1px #8b5cf6;
+}
+
+.guided-step-copy {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  align-items: center;
+  gap: 5px 10px;
+}
+
+.guided-step-copy p {
+  grid-column: 1 / -1;
+  font-size: 13px;
+}
+
+.guided-step .secondary-button {
+  margin: 0;
+  flex-shrink: 0;
+}
+
+.export-readiness {
+  margin: 20px 0;
+  padding: 18px;
+  border: 1px solid #34405a;
+  border-radius: 10px;
+  background: #10182a;
+}
+
+.export-readiness h4 {
+  margin: 0 0 12px;
+  color: #c4b5fd;
+}
+
+.export-readiness dl {
+  display: grid;
+  gap: 8px;
+  margin: 0;
+}
+
+.export-readiness dl > div {
+  display: grid;
+  grid-template-columns: minmax(150px, 0.35fr) 1fr;
+  gap: 12px;
+}
+
+.export-readiness dt {
+  color: #aeb8ce;
+  font-weight: 600;
+}
+
+.export-readiness dd {
+  margin: 0;
+}
+
+.export-validation-issues {
+  margin-bottom: 0;
+  color: #fde68a;
+}
+
+.export-ready-message {
+  margin-bottom: 0;
+  color: #bbf7d0;
+}
+
+#guided-step-narration,
+#guided-step-segments,
+#guided-step-visuals,
+#guided-step-pauses,
+#guided-step-music,
+#guided-step-export {
+  scroll-margin-top: 24px;
+}
+
+@media (max-width: 760px) {
+  .guided-production-header,
+  .guided-step {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .export-readiness dl > div {
+    grid-template-columns: 1fr;
+    gap: 2px;
+  }
+}
+
 .project-form {
   display: flex;
   flex-direction: column;
