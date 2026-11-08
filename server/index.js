@@ -11,8 +11,9 @@ const { checkFFmpeg } = require("./utils/ffmpeg");
 const { renderImageVideo } = require("./utils/renderVideo");
 const { renderMultiImageVideo } = require("./utils/renderMultiImageVideo");
 const { prepareScenes } = require("./utils/prepareScenes");
-const { renderMixedMediaVideo } = require("./utils/renderMixedMediaVideo");
+const { renderMixedMediaVideo, MAX_RENDER_SEGMENTS } = require("./utils/renderMixedMediaVideo");
 const { preparePausedRender } = require("./utils/preparePausedRender");
+const { sanitizeRenderDiagnostic } = require("./utils/renderDiagnostics");
 const { detectNarrationSegments } = require("./utils/detectNarrationSegments");
 const {
   MAX_BACKGROUND_MUSIC_SIZE, MUSIC_FILENAME_PATTERN, createStoredMusicFilename,
@@ -929,12 +930,15 @@ app.post(
 
     let temporaryAudioPath = null;
     let mixedAudioPath = null;
+    const diagnosticId = crypto.randomUUID();
+    let renderStage = "validation";
 
     try {
       let renderScenes = preparedScenes;
       let renderAudioPath = audioPath;
 
       if (preparedPauses.length > 0) {
+        renderStage = "pause-preparation";
         temporaryAudioPath = path.join(
           RENDER_OUTPUT_ROOT,
           projectId,
@@ -948,10 +952,10 @@ app.post(
           pausedAudioPath: temporaryAudioPath,
         });
 
-        if (prepared.scenes.length > 20) {
+        if (prepared.scenes.length > MAX_RENDER_SEGMENTS) {
           throw new Error(
             "Too many visual segments after inserting teaching pauses. " +
-            "This rendering mode currently supports 20 segments."
+            `This rendering mode currently supports ${MAX_RENDER_SEGMENTS} segments.`
           );
         }
 
@@ -959,6 +963,7 @@ app.post(
         renderAudioPath = prepared.audioPath;
       }
       if (musicPath) {
+        renderStage = "background-mix";
         mixedAudioPath = path.join(RENDER_OUTPUT_ROOT, projectId, crypto.randomUUID() + "-background-mix.wav");
         await mixBackgroundMusic({
           audioPath: renderAudioPath, musicPath, outputPath: mixedAudioPath,
@@ -966,6 +971,7 @@ app.post(
         });
         renderAudioPath = mixedAudioPath;
       }
+      renderStage = "video-encoding";
       const result = await renderMixedMediaVideo({
         scenes: renderScenes,
         audioPath: renderAudioPath,
@@ -986,7 +992,8 @@ app.post(
         },
       });
     } catch (error) {
-      console.error("Mixed-media rendering failed:", error);
+      const diagnostic = sanitizeRenderDiagnostic(error, renderStage, diagnosticId);
+      console.error(`[render ${diagnosticId}] Mixed-media rendering failed during ${renderStage}:`, error);
 
       try {
         fs.rmSync(outputPath, { force: true });
@@ -998,8 +1005,8 @@ app.post(
 
       return res.status(500).json({
         success: false,
-        message:
-          "Mixed-media rendering failed. Check the server terminal.",
+        message: `Mixed-media rendering failed during ${diagnostic.stage}: ${diagnostic.message}`,
+        diagnostic,
       });
     } finally {
       for (const temporaryPath of [temporaryAudioPath, mixedAudioPath]) {

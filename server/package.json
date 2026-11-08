@@ -13,7 +13,8 @@
     "test:visual-alignment:export": "node testVisualAlignmentExport.js",
     "test:background-music": "node testBackgroundMusic.js && node testBackgroundMusicApi.js",
     "test:guided-production": "node testGuidedProduction.js",
-    "test:guided-production:acceptance": "node testGuidedProductionAcceptance.js"
+    "test:guided-production:acceptance": "node testGuidedProductionAcceptance.js",
+    "test:render-diagnostics": "node testRenderDiagnostics.js"
 },
   "keywords": [],
   "author": "",

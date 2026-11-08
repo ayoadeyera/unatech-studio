@@ -2,74 +2,17 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { appendNonOverlappingSegmentScenes, segmentCanBePlaced } from "./narrationSceneWorkflow";
 import { prepareScenesAutomatically } from "./automaticScenePreparation";
-import {
-  createManualVisualAssignments,
-  createSequentialVisualAssignments,
-  planVisualAlignment,
-  type AlignmentMediaAsset,
-} from "./visualAlignment";
+import type { AlignmentMediaAsset } from "./visualAlignment";
 import { DEFAULT_BACKGROUND_MUSIC_SETTINGS, type BackgroundMusicSettings } from "./backgroundMusic";
-import { getGuidedStepState, getGuidedStepStatusLabel, getProjectGuidedStage, updateProjectGuidedStage, validateGuidedExport, type GuidedStageId, type GuidedStepId } from "./guidedProduction";
+import { validateGuidedExport } from "./guidedProduction";
 import { apiRequest, apiUrl } from "./api";
+import type { BackgroundMusicAsset, NarrationSegment, Project, TeachingPause, VisualScene } from "./workstation/models";
+import { Workstation } from "./workstation/Workstation";
+import { snapTimelineTime, validateSceneTiming } from "./workstation/timelineEditing";
+import { createUuid } from "./workstation/createUuid";
 import "./App.css";
 
 type Preset = "Focused Teaching" | "Entertaining Presenter" | "High-Energy Explainer";
-
-interface TeachingPause {
-  id: string;
-  time: number;
-  duration: number;
-  label: string;
-}
-
-type VisualMediaType = "image" | "video";
-
-interface BackgroundMusicAsset {
-  filename: string;
-  originalName: string;
-  size: number;
-}
-
-interface NarrationSegment {
-  id: string;
-  startTime: number;
-  endTime: number;
-  duration: number;
-}
-
-interface VisualScene {
-  id: string;
-  title: string;
-  startTime: number;
-  duration: number;
-  mediaType: VisualMediaType;
-  mediaUrl: string | null;
-  originalName: string | null;
-  narrationSegmentId?: string;
-  alignmentAssetId?: string;
-}
-
-interface Project {
-  id: string;
-  title: string;
-  script: string;
-  preset: Preset;
-  createdAt: string;
-  teachingPauses?: TeachingPause[];
-  visualScenes?: VisualScene[];
-  narrationSegments?: NarrationSegment[];
-  narration?: {
-    filename: string;
-    originalName: string;
-    url: string;
-    size: number;
-  };
-  backgroundMusic?: { filename: string; originalName: string };
-  backgroundMusicSettings?: BackgroundMusicSettings;
-  guidedProduction?: { activeStep?: GuidedStepId; activeStage?: GuidedStageId };
-}
-
-
 
 const STORAGE_KEY = "unatech-projects";
 const VIEW_STORAGE_KEY = "unatech-current-view";
@@ -125,16 +68,12 @@ function App() {
   const [renderSeconds, setRenderSeconds] = useState(0);
   const [renderMessage, setRenderMessage] = useState("");
   const [renderedVideoUrl, setRenderedVideoUrl] = useState<string | null>(null);
-  const [visualFiles, setVisualFiles] = useState<Record<string, File>>({});
-  const [uploadingSceneId, setUploadingSceneId] = useState<string | null>(null);
-  const [visualUploadMessages, setVisualUploadMessages] = useState<
-    Record<string, string>
-  >({});
   const [visualLibrary, setVisualLibrary] = useState<AlignmentMediaAsset[]>([]);
+  const [visualLibraryFile, setVisualLibraryFile] = useState<File | null>(null);
+  const [visualLibraryUploading, setVisualLibraryUploading] = useState(false);
+  const [timelineMessage, setTimelineMessage] = useState("");
   const [visualLibraryMessage, setVisualLibraryMessage] = useState("");
-  const [alignmentMode, setAlignmentMode] = useState<"sequential" | "manual">("sequential");
   const [selectedAlignmentAssets, setSelectedAlignmentAssets] = useState<string[]>([]);
-  const [manualAlignmentAssets, setManualAlignmentAssets] = useState<Record<string, string>>({});
   const [alignmentMessage, setAlignmentMessage] = useState("");
   const [preparingScenes, setPreparingScenes] = useState(false);
 
@@ -147,7 +86,6 @@ function App() {
   const selectedProject = projects.find(
     (project) => project.id === selectedProjectId
   );
-  const activeStage = getProjectGuidedStage(selectedProject);
 
 
 
@@ -163,24 +101,6 @@ function App() {
     () => selectedProject?.narrationSegments ?? [],
     [selectedProject?.narrationSegments]
   );
-  const alignmentAssignments = useMemo(
-    () => alignmentMode === "sequential"
-      ? createSequentialVisualAssignments(narrationSegments, selectedAlignmentAssets)
-      : createManualVisualAssignments(narrationSegments, manualAlignmentAssets),
-    [alignmentMode, manualAlignmentAssets, narrationSegments, selectedAlignmentAssets],
-  );
-  const alignmentPreview = useMemo(
-    () => planVisualAlignment(
-      narrationSegments,
-      alignmentAssignments,
-      visualLibrary,
-      visualScenes,
-      (segmentId) => `preview-${segmentId}`,
-    ),
-    [alignmentAssignments, narrationSegments, visualLibrary, visualScenes],
-  );
-  const alignmentChangeCount =
-    alignmentPreview.addedScenes.length + alignmentPreview.filledSlots.length;
   const exportValidation = useMemo(
     () => validateGuidedExport(selectedProject, audioDuration, {
       visualUrls: visualLibraryMessage === "Loading project media…"
@@ -213,12 +133,8 @@ function App() {
   const preparingScenesRef = useRef(false);
 
   useEffect(() => {
-    if (!selectedProjectId) {
-      setVisualLibrary([]);
-      return;
-    }
+    if (!selectedProjectId) return;
     let active = true;
-    setVisualLibraryMessage("Loading project media…");
     apiRequest<{ success: boolean; media: AlignmentMediaAsset[] }>(`/api/projects/${selectedProjectId}/visuals`)
       .then((data) => {
         if (!data.success || !Array.isArray(data.media)) throw new Error("The project media response was incomplete.");
@@ -234,10 +150,7 @@ function App() {
   }, [selectedProjectId]);
 
   useEffect(() => {
-    if (!selectedProjectId) {
-      setMusicLibrary([]);
-      return;
-    }
+    if (!selectedProjectId) return;
     let active = true;
     apiRequest<{ success: boolean; music: BackgroundMusicAsset[] }>(`/api/projects/${selectedProjectId}/background-music`)
       .then((data) => {
@@ -260,6 +173,36 @@ function App() {
       setVisualLibraryMessage(error instanceof Error ? error.message : "Could not refresh project media.");
     }
   }, []);
+
+  async function uploadVisualLibraryAsset() {
+    if (!selectedProjectId || !visualLibraryFile || visualLibraryUploading) return;
+    const file = visualLibraryFile;
+    const extension = file.name.split(".").pop()?.toLowerCase();
+    const allowed = ["jpg", "jpeg", "png", "webp", "mp4"];
+    if (!allowed.includes(extension ?? "") || file.size > 100 * 1024 * 1024) {
+      setVisualLibraryMessage(file.size > 100 * 1024 * 1024
+        ? "Visual media must be smaller than 100 MB."
+        : "Choose a JPG, PNG, WebP, or MP4 file.");
+      return;
+    }
+    setVisualLibraryUploading(true);
+    setVisualLibraryMessage("Uploading visual asset…");
+    try {
+      const formData = new FormData();
+      formData.append("visual", file);
+      const data = await apiRequest<{ success: boolean; media?: AlignmentMediaAsset; message?: string }>(
+        `/api/projects/${selectedProjectId}/visuals`, { method: "POST", body: formData },
+      );
+      if (!data.success || !data.media) throw new Error(data.message || "Visual upload failed.");
+      setVisualLibraryFile(null);
+      await refreshVisualLibrary(selectedProjectId);
+      setVisualLibraryMessage(`${data.media.originalName} added to this project’s visual library.`);
+    } catch (error) {
+      setVisualLibraryMessage(error instanceof Error ? error.message : "Visual upload failed.");
+    } finally {
+      setVisualLibraryUploading(false);
+    }
+  }
 
   useEffect(() => {
     if (!rendering) return;
@@ -363,7 +306,7 @@ function App() {
     }
 
     const project: Project = {
-      id: crypto.randomUUID(),
+      id: createUuid(),
       title: title.trim(),
       script: script.trim(),
       preset,
@@ -405,6 +348,7 @@ function App() {
     setAudioFile(null);
     setMusicFile(null);
     setMusicMessage("");
+    setVisualLibraryMessage("Loading project media…");
     setUploadMessage("");
     setMessage("");
     setView("editor");
@@ -424,23 +368,12 @@ function App() {
     setCurrentTime(targetTime);
     setSelectedPauseId(pause.id);
   }
-  function seekToPosition(clientX: number, track: HTMLDivElement) {
-    if (!audioRef.current || audioDuration === null || audioDuration <= 0) {
-      return;
-    }
-
-    const bounds = track.getBoundingClientRect();
-    if (bounds.width <= 0) return;
-
-    const percentage = Math.min(
-      1,
-      Math.max(0, (clientX - bounds.left) / bounds.width)
-    );
-
-    const newTime = percentage * audioDuration;
-
-    audioRef.current.currentTime = newTime;
-    setCurrentTime(newTime);
+  function seekToTime(time: number) {
+    if (!audioRef.current || audioDuration === null || audioDuration <= 0) return;
+    const nextTime = Math.min(audioDuration, Math.max(0, time));
+    audioRef.current.currentTime = nextTime;
+    lastPreviewPositionRef.current = nextTime;
+    setCurrentTime(nextTime);
   }
 
 
@@ -536,7 +469,7 @@ function App() {
     }
 
     const pause: TeachingPause = {
-      id: crypto.randomUUID(),
+      id: createUuid(),
       time: Math.min(currentTime, audioDuration),
       duration: 3,
       label: "Teaching Pause",
@@ -605,13 +538,21 @@ function App() {
   function addVisualScene() {
     if (!selectedProjectId) return;
 
+    const sortedScenes = [...visualScenes].sort((a, b) => a.startTime - b.startTime);
+    const startTime = sortedScenes.reduce(
+      (endTime, scene) => Math.max(endTime, scene.startTime + scene.duration),
+      0,
+    );
+    if (audioDuration !== null && startTime >= audioDuration) {
+      setTimelineMessage("There is no unused narration time left for another scene.");
+      return;
+    }
+
     const scene: VisualScene = {
-      id: crypto.randomUUID(),
+      id: createUuid(),
       title: `Scene ${visualScenes.length + 1}`,
-      startTime: audioDuration !== null
-        ? Math.min(currentTime, audioDuration)
-        : 0,
-      duration: 5,
+      startTime,
+      duration: audioDuration !== null ? Math.min(5, audioDuration - startTime) : 5,
       mediaType: "image",
       mediaUrl: null,
       originalName: null,
@@ -635,10 +576,25 @@ function App() {
   function updateVisualScene(
     sceneId: string,
     updates: Partial<
-      Pick<VisualScene, "title" | "startTime" | "duration" | "mediaType">
+      Pick<VisualScene, "title" | "startTime" | "duration" | "mediaType" | "mediaUrl" | "originalName">
     >
   ) {
     if (!selectedProjectId) return;
+
+    const currentScene = visualScenes.find((scene) => scene.id === sceneId);
+    if (!currentScene) return;
+    let normalizedUpdates = updates;
+    if (updates.startTime !== undefined || updates.duration !== undefined) {
+      const startTime = snapTimelineTime(updates.startTime ?? currentScene.startTime);
+      const duration = snapTimelineTime(updates.duration ?? currentScene.duration);
+      const validation = validateSceneTiming(visualScenes, sceneId, startTime, duration, audioDuration ?? Infinity);
+      if (validation.valid === false) {
+        setTimelineMessage(validation.reason);
+        return;
+      }
+      setTimelineMessage("");
+      normalizedUpdates = { ...updates, startTime, duration };
+    }
 
     const updatedProjects = projects.map((project) => {
       if (project.id !== selectedProjectId) return project;
@@ -647,7 +603,7 @@ function App() {
         ...project,
         visualScenes: (project.visualScenes ?? [])
           .map((scene) =>
-            scene.id === sceneId ? { ...scene, ...updates } : scene
+            scene.id === sceneId ? { ...scene, ...normalizedUpdates } : scene
           )
           .sort((a, b) => a.startTime - b.startTime),
       };
@@ -709,7 +665,7 @@ function App() {
     const current = narrationSegments[index];
     const next = narrationSegments[index + 1];
     const merged: NarrationSegment = {
-      id: crypto.randomUUID(),
+      id: createUuid(),
       startTime: Math.min(current.startTime, next.startTime),
       endTime: Math.max(current.endTime, next.endTime),
       duration: Number((Math.max(current.endTime, next.endTime) - Math.min(current.startTime, next.startTime)).toFixed(3)),
@@ -722,8 +678,8 @@ function App() {
     if (!segment || segment.duration < 0.24) return;
     const midpoint = Number(((segment.startTime + segment.endTime) / 2).toFixed(3));
     const split = [
-      { id: crypto.randomUUID(), startTime: segment.startTime, endTime: midpoint, duration: Number((midpoint - segment.startTime).toFixed(3)) },
-      { id: crypto.randomUUID(), startTime: midpoint, endTime: segment.endTime, duration: Number((segment.endTime - midpoint).toFixed(3)) },
+      { id: createUuid(), startTime: segment.startTime, endTime: midpoint, duration: Number((midpoint - segment.startTime).toFixed(3)) },
+      { id: createUuid(), startTime: midpoint, endTime: segment.endTime, duration: Number((segment.endTime - midpoint).toFixed(3)) },
     ];
     saveNarrationSegments(narrationSegments.flatMap((item) => item.id === segmentId ? split : [item]));
   }
@@ -743,7 +699,7 @@ function App() {
       }
       const segments: NarrationSegment[] = data.segments.map((segment: Omit<NarrationSegment, "id">) => ({
         ...segment,
-        id: crypto.randomUUID(),
+        id: createUuid(),
       }));
       saveNarrationSegments(segments);
       setSegmentationMessage(`Suggested ${segments.length} audio activity segment${segments.length === 1 ? "" : "s"}. Review and edit them before appending scene slots.`);
@@ -760,7 +716,7 @@ function App() {
     const result = appendNonOverlappingSegmentScenes(
       narrationSegments,
       existingScenes,
-      () => crypto.randomUUID(),
+      () => createUuid(),
     );
     if (result.addedCount === 0) {
       setSegmentationMessage(
@@ -810,7 +766,7 @@ function App() {
         if (!data.success || !Array.isArray(data.segments)) {
           throw new Error(data.message || "FFmpeg could not return narration segments.");
         }
-        segments = data.segments.map((segment) => ({ ...segment, id: crypto.randomUUID() }));
+        segments = data.segments.map((segment) => ({ ...segment, id: createUuid() }));
       }
       if (segments.length === 0) {
         setAlignmentMessage("No narration activity segments were found. Review the narration or create segments manually in Stage 1.");
@@ -822,7 +778,7 @@ function App() {
         selectedAlignmentAssets,
         visualLibrary,
         selectedProject.visualScenes ?? [],
-        (segmentId) => `scene-${segmentId}-${crypto.randomUUID()}`,
+        (segmentId) => `scene-${segmentId}-${createUuid()}`,
       );
       if (!result.changed && segments === (selectedProject.narrationSegments ?? [])) {
         setAlignmentMessage(
@@ -850,65 +806,6 @@ function App() {
     }
   }
 
-  function applyVisualAlignment(mode: "sequential" | "manual" = alignmentMode) {
-    if (!selectedProjectId || !selectedProject) return;
-    const assignments = mode === "sequential"
-      ? createSequentialVisualAssignments(narrationSegments, selectedAlignmentAssets)
-      : createManualVisualAssignments(narrationSegments, manualAlignmentAssets);
-    const result = planVisualAlignment(
-      narrationSegments,
-      assignments,
-      visualLibrary,
-      selectedProject.visualScenes ?? [],
-      () => crypto.randomUUID(),
-    );
-    if (result.addedScenes.length + result.filledSlots.length === 0) {
-      setAlignmentMessage("No assignments were applied. Existing scenes were preserved.");
-      return;
-    }
-    const updatedProjects = projects.map((project) => project.id === selectedProjectId
-      ? { ...project, visualScenes: result.scenes as VisualScene[] }
-      : project);
-    setProjects(updatedProjects);
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(updatedProjects));
-    setAlignmentMessage(
-      `Filled ${result.filledSlots.length} existing slot${result.filledSlots.length === 1 ? "" : "s"} and added ${result.addedScenes.length} new scene${result.addedScenes.length === 1 ? "" : "s"}. ${result.skipped.length} assignment${result.skipped.length === 1 ? " was" : "s were"} skipped; existing scene details and populated media were kept.`,
-    );
-  }
-
-  function setEditorStage(stage: GuidedStageId) {
-    if (!selectedProjectId) return;
-    const updatedProjects = updateProjectGuidedStage(projects, selectedProjectId, stage);
-    setProjects(updatedProjects);
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(updatedProjects));
-    window.scrollTo({ top: 0, behavior: "smooth" });
-  }
-
-  function moveEditorStage(direction: -1 | 1) {
-    const stages: readonly GuidedStageId[] = ["narration", "visuals", "audio", "export"];
-    const nextIndex = Math.min(stages.length - 1, Math.max(0, stages.indexOf(activeStage) + direction));
-    setEditorStage(stages[nextIndex]);
-  }
-
-  function toggleAlignmentAsset(assetId: string) {
-    setSelectedAlignmentAssets((current) => current.includes(assetId)
-      ? current.filter((id) => id !== assetId)
-      : [...current, assetId]);
-  }
-
-  function alignmentSkipLabel(reason: string, conflictingSceneTitle?: string) {
-    switch (reason) {
-      case "no-media-selected": return "No media selected";
-      case "media-not-found": return "Selected media is no longer available";
-      case "already-assigned": return "This segment already has an aligned scene";
-      case "duplicate-segment-slot": return "Multiple scene slots match this segment";
-      case "overlaps-existing-scene": return `Overlaps existing scene${conflictingSceneTitle ? ` “${conflictingSceneTitle}”` : ""}`;
-      case "scene-limit": return "Export limit of 20 scenes reached";
-      case "invalid-timing": return "Invalid segment timing";
-      default: return "Segment could not be placed";
-    }
-  }
-
   function formatDuration(seconds: number): string {
     if (!Number.isFinite(seconds) || seconds < 0) {
       return "Unknown";
@@ -927,111 +824,6 @@ function App() {
     }
 
     return `${paddedMinutes}:${paddedSeconds}`;
-  }
-
-  async function uploadVisualScene(scene: VisualScene) {
-    if (!selectedProjectId || uploadingSceneId) return;
-
-    const file = visualFiles[scene.id];
-
-    if (!file) {
-      setVisualUploadMessages((previous) => ({
-        ...previous,
-        [scene.id]: "Please select an image or video.",
-      }));
-      return;
-    }
-
-    const allowedTypes = [
-      "image/jpeg",
-      "image/png",
-      "image/webp",
-      "video/mp4",
-    ];
-
-    const extension = file.name.split(".").pop()?.toLowerCase();
-
-    if (
-      !allowedTypes.includes(file.type) ||
-      !["jpg", "jpeg", "png", "webp", "mp4"].includes(extension ?? "")
-    ) {
-      setVisualUploadMessages((previous) => ({
-        ...previous,
-        [scene.id]: "Only JPG, PNG, WebP and MP4 files are supported.",
-      }));
-      return;
-    }
-
-    if (file.size > 100 * 1024 * 1024) {
-      setVisualUploadMessages((previous) => ({
-        ...previous,
-        [scene.id]: "File must not exceed 100 MB.",
-      }));
-      return;
-    }
-
-    const projectId = selectedProjectId;
-    setUploadingSceneId(scene.id);
-
-    setVisualUploadMessages((previous) => ({
-      ...previous,
-      [scene.id]: "Uploading visual media...",
-    }));
-
-    try {
-      const formData = new FormData();
-      formData.append("visual", file);
-
-      const data = await apiRequest<{ success: boolean; message?: string; media?: { url?: string; originalName?: string; mediaType?: VisualMediaType } }>(
-        `/api/projects/${projectId}/visuals`,
-        { method: "POST", body: formData },
-      );
-
-      if (!data.success || !data.media?.url) {
-        throw new Error(data.message || "Visual upload failed.");
-      }
-
-      const updatedProjects = projects.map((project) => {
-        if (project.id !== projectId) return project;
-
-        return {
-          ...project,
-          visualScenes: (project.visualScenes ?? []).map((item) =>
-            item.id === scene.id
-              ? {
-                ...item,
-                mediaUrl: data.media.url as string,
-                originalName: data.media.originalName as string,
-                mediaType: data.media.mediaType as VisualMediaType,
-              }
-              : item
-          ),
-        };
-      });
-
-      setProjects(updatedProjects);
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(updatedProjects));
-      await refreshVisualLibrary(projectId);
-
-      setVisualFiles((previous) => {
-        const updated = { ...previous };
-        delete updated[scene.id];
-        return updated;
-      });
-
-      setVisualUploadMessages((previous) => ({
-        ...previous,
-        [scene.id]: "Visual media uploaded successfully!",
-      }));
-    } catch (error) {
-      setVisualUploadMessages((previous) => ({
-        ...previous,
-        [scene.id]:
-          error instanceof Error ? error.message : "Upload failed.",
-      }));
-    } finally {
-      setUploadingSceneId(null);
-    }
   }
 
   function updateProjectMusic(
@@ -1194,6 +986,50 @@ function App() {
     }
   }
 
+  const narrationAudioElement = selectedProject?.narration ? (
+    <audio
+      ref={audioRef}
+      controls
+      preload="metadata"
+      onPause={(event) => { setCurrentTime(event.currentTarget.currentTime); setPreviewSyncRevision((revision) => revision + 1); }}
+      onPlay={(event) => { setCurrentTime(event.currentTarget.currentTime); setPreviewSyncRevision((revision) => revision + 1); }}
+      onEnded={(event) => {
+        event.currentTarget.currentTime = 0;
+        setCurrentTime(0);
+        lastPreviewPositionRef.current = 0;
+        if (selectedProjectId) localStorage.setItem(`${PLAYBACK_POSITION_PREFIX}${selectedProjectId}`, "0");
+      }}
+      onTimeUpdate={(event) => {
+        const position = event.currentTarget.currentTime;
+        setCurrentTime(position);
+        if (selectedProjectId) localStorage.setItem(`${PLAYBACK_POSITION_PREFIX}${selectedProjectId}`, String(position));
+      }}
+      onSeeked={(event) => {
+        const position = event.currentTarget.currentTime;
+        lastPreviewPositionRef.current = position;
+        for (const pause of teachingPauses) if (position < pause.time - 0.4) completedPreviewPausesRef.current.delete(pause.id);
+        setCurrentTime(position);
+        if (selectedProjectId) localStorage.setItem(`${PLAYBACK_POSITION_PREFIX}${selectedProjectId}`, String(position));
+      }}
+      onLoadedMetadata={(event) => {
+        const audio = event.currentTarget;
+        const validDuration = Number.isFinite(audio.duration) && audio.duration > 0;
+        setAudioDuration(validDuration ? audio.duration : null);
+        setNarrationDurationStatus(validDuration ? "ready" : "unavailable");
+        if (!selectedProjectId || !validDuration) return;
+        const key = `${PLAYBACK_POSITION_PREFIX}${selectedProjectId}`;
+        const savedPosition = Number(localStorage.getItem(key));
+        const restored = Number.isFinite(savedPosition) && savedPosition >= 0 && savedPosition < audio.duration ? savedPosition : 0;
+        audio.currentTime = restored;
+        lastPreviewPositionRef.current = restored;
+        setCurrentTime(restored);
+        localStorage.setItem(key, String(restored));
+      }}
+      onError={() => { setAudioDuration(null); setNarrationDurationStatus("unavailable"); }}
+      src={apiUrl(selectedProject.narration.url)}
+    >Your browser does not support narration playback.</audio>
+  ) : <div className="workstation-preview-empty">Upload narration to preview this project.</div>;
+
   return (
     <div className="app">
       <aside className="sidebar">
@@ -1206,7 +1042,7 @@ function App() {
       </aside>
 
       <main className="main-content">
-        <header className="topbar">
+        {view !== "editor" && <header className="topbar">
           <h1>
             {view === "dashboard"
               ? "Dashboard"
@@ -1217,7 +1053,7 @@ function App() {
                   : "Project Editor"}
           </h1>
           <span className="version">Studio v0.2.0</span>
-        </header>
+        </header>}
 
         {view === "dashboard" && (
           <>
@@ -1336,1089 +1172,73 @@ function App() {
           </section>
         )}
 
-        {view === "editor" && (
-          <section className="status-card">
-            <h2>Project Workspace</h2>
-            <p>
-              {projects.find((project) => project.id === selectedProjectId)?.title}
-            </p>
-            <section className="guided-production" aria-labelledby="guided-production-heading">
-              <div className="guided-production-header">
-                <div>
-                  <h3 id="guided-production-heading">Guided Production</h3>
-                  <p>Work through each stage. Your progress is saved with this project; optional pauses and music can be skipped.</p>
-                </div>
-                <span className={`guided-ready-badge ${exportValidation.ready ? "is-ready" : "is-incomplete"}`}>
-                  {exportValidation.ready ? "Ready to export" : `${exportValidation.issues.length} item${exportValidation.issues.length === 1 ? "" : "s"} to resolve`}
-                </span>
-              </div>
-              <ol className="editor-progress" aria-label="Production stages">
-                {([
-                  ["narration", "1", "Narration", getGuidedStepState("narration", selectedProject, exportValidation)],
-                  ["visuals", "2", "Visuals", getGuidedStepState("visuals", selectedProject, exportValidation)],
-                  ["audio", "3", "Audio & Timing", getGuidedStepState("pauses", selectedProject, exportValidation) === "needs-attention" || getGuidedStepState("music", selectedProject, exportValidation) === "needs-attention" ? "needs-attention" : "complete"],
-                  ["export", "4", "Preview & Export", getGuidedStepState("export", selectedProject, exportValidation)],
-                ] as const).map(([stage, number, label, status]) => (
-                  <li key={stage} className={`editor-progress-item editor-progress-${status}`}>
-                    <button
-                      type="button"
-                      aria-current={activeStage === stage ? "step" : undefined}
-                      aria-label={`Stage ${number}: ${label}${activeStage === stage ? ", current stage" : ""}`}
-                      onClick={() => setEditorStage(stage)}
-                    >
-                      <span className="editor-progress-number">{number}</span>
-                      <span className="editor-progress-copy">
-                        <strong>{label}</strong>
-                        <span>{stage === "narration"
-                          ? getGuidedStepStatusLabel("narration", status, exportValidation)
-                          : stage === "visuals"
-                            ? getGuidedStepStatusLabel("visuals", status, exportValidation)
-                            : stage === "audio"
-                              ? status === "needs-attention" ? "Review audio timing" : `${teachingPauses.length} pauses · ${selectedProject?.backgroundMusic?.filename ? "Music selected" : "Music optional"}`
-                              : getGuidedStepStatusLabel("export", status, exportValidation)}</span>
-                      </span>
-                    </button>
-                  </li>
-                ))}
-              </ol>
-              <div className="editor-stage-title" aria-live="polite">
-                <span>Stage {(["narration", "visuals", "audio", "export"] as const).indexOf(activeStage) + 1} of 4</span>
-                <h3>{activeStage === "narration" ? "Narration" : activeStage === "visuals" ? "Visuals" : activeStage === "audio" ? "Audio & Timing" : "Preview & Export"}</h3>
-                <p>{activeStage === "narration"
-                  ? "Upload and review your narration. Segment suggestions are optional and can be adjusted before use."
-                  : activeStage === "visuals"
-                    ? "Upload visuals, assign them by narration timing, and edit scene details."
-                    : activeStage === "audio"
-                      ? "Set teaching pauses and optional background music for this project."
-                      : "Check export readiness, preview the synchronized result, and download the MP4."}</p>
-              </div>
-            </section>
-            <div className="project-form">
-              {activeStage === "narration" && <>
-              <h3 id="guided-step-narration">Audio Studio</h3>
-              <p>Import your ElevenLabs narration (MP3 or WAV, maximum 100 MB).</p>
-
-              <label htmlFor="narration-file">Select Narration</label>
-
-              <input
-                id="narration-file"
-                type="file"
-                accept=".mp3,.wav,audio/mpeg,audio/wav"
-                onChange={(event) => {
-                  setAudioFile(event.target.files?.[0] || null);
-                  setUploadMessage("");
-                }}
-              />
-
-              <button
-                className="primary-button"
-                type="button"
-                disabled={!audioFile || uploading}
-                onClick={uploadNarration}
-              >
-                {uploading ? "Uploading..." : "Upload Narration"}
-              </button>
-
-              {uploadMessage && <p role="status">{uploadMessage}</p>}
-              </>}
-
-              {activeStage === "audio" && <>
-              <section className="background-music-settings" id="guided-step-music" aria-labelledby="background-music-heading">
-                <h4 id="background-music-heading">Background Music</h4>
-                <p>
-                  Upload MP3 or WAV music for this project. Mixing effects are applied during MP4 export;
-                  the live preview plays narration without background music.
-                </p>
-                <label htmlFor="background-music-file">Select background music (maximum 100 MB)</label>
-                <input
-                  id="background-music-file"
-                  key={selectedProjectId ?? "no-project"}
-                  type="file"
-                  accept=".mp3,.wav,audio/mpeg,audio/wav"
-                  onChange={(event) => {
-                    setMusicFile(event.target.files?.[0] ?? null);
-                    setMusicMessage("");
-                  }}
-                />
-                <button
-                  className="primary-button"
-                  type="button"
-                  disabled={!musicFile || musicUploading}
-                  onClick={uploadBackgroundMusic}
-                >
-                  {musicUploading ? "Uploading music..." : "Upload Music"}
-                </button>
-                <label htmlFor="background-music-selection">Selected project track</label>
-                <select
-                  id="background-music-selection"
-                  value={selectedProject?.backgroundMusic?.filename ?? ""}
-                  onChange={(event) => {
-                    const asset = musicLibrary.find((item) => item.filename === event.target.value);
-                    updateProjectMusic({
-                      backgroundMusic: asset
-                        ? { filename: asset.filename, originalName: asset.originalName }
-                        : undefined,
-                    });
-                    setMusicMessage(asset
-                      ? `${asset.originalName} selected for export.`
-                      : "Background music disabled; exports use narration only.");
-                  }}
-                >
-                  <option value="">No background music</option>
-                  {musicLibrary.map((asset) => (
-                    <option key={asset.filename} value={asset.filename}>{asset.originalName}</option>
-                  ))}
-                </select>
-                <div className="background-music-controls">
-                  {([
-                    ["musicVolume", "Music volume"],
-                    ["narrationDuckingLevel", "Narration ducking (music under speech)"],
-                    ["teachingPauseMusicLevel", "Music level during teaching pauses"],
-                  ] as const).map(([key, label]) => {
-                    const settings = selectedProject?.backgroundMusicSettings ?? DEFAULT_BACKGROUND_MUSIC_SETTINGS;
-                    return (
-                      <label key={key} className="music-range-control">
-                        {label}<span>{Math.round(settings[key] * 100)}%</span>
-                        <input
-                          type="range"
-                          min="0"
-                          max="1"
-                          step="0.01"
-                          value={settings[key]}
-                          onChange={(event) => updateMusicSetting(key, Number(event.target.value))}
-                        />
-                      </label>
-                    );
-                  })}
-                  {([
-                    ["fadeInDuration", "Fade in (seconds)"],
-                    ["fadeOutDuration", "Fade out (seconds)"],
-                    ["transitionDuration", "Pause transition (seconds)"],
-                  ] as const).map(([key, label]) => {
-                    const settings = selectedProject?.backgroundMusicSettings ?? DEFAULT_BACKGROUND_MUSIC_SETTINGS;
-                    return (
-                      <label key={key} className="music-range-control">
-                        {label}<span>{settings[key].toFixed(1)} s</span>
-                        <input
-                          type="range"
-                          min="0"
-                          max="10"
-                          step="0.1"
-                          value={settings[key]}
-                          onChange={(event) => updateMusicSetting(key, Number(event.target.value))}
-                        />
-                      </label>
-                    );
-                  })}
-                </div>
-                {musicMessage && <p role="status">{musicMessage}</p>}
-                <p className="music-export-note">
-                  Focused Teaching defaults keep music quiet under narration and raise it gently during teaching pauses.
-                  Adjust the levels and ramps for this project.
-                </p>
-              </section>
-              </>}
-
-              {projects
-                .find((project) => project.id === selectedProjectId)
-                ?.narration && (
-                  <div>
-                    {activeStage === "narration" && <>
-                    <h4>Uploaded Narration</h4>
-
-                    <p>
-                      {
-                        projects.find(
-                          (project) => project.id === selectedProjectId
-                        )?.narration?.originalName
-                      }
-                    </p>
-                    </>}
-
-                    <audio
-                      ref={audioRef}
-                      controls={activeStage !== "visuals"}
-                      hidden={activeStage === "visuals"}
-                      preload="metadata"
-                      onPause={(event) => {
-                        setCurrentTime(event.currentTarget.currentTime);
-                        setPreviewSyncRevision((revision) => revision + 1);
-                      }}
-                      onPlay={(event) => {
-                        setCurrentTime(event.currentTarget.currentTime);
-                        setPreviewSyncRevision((revision) => revision + 1);
-                      }}
-                      onEnded={(event) => {
-                        const audio = event.currentTarget;
-
-                        audio.currentTime = 0;
-                        setCurrentTime(0);
-                        lastPreviewPositionRef.current = 0;
-
-                        if (selectedProjectId) {
-                          localStorage.setItem(
-                            `${PLAYBACK_POSITION_PREFIX}${selectedProjectId}`,
-                            "0"
-                          );
-                        }
-                      }}
-
-                      onTimeUpdate={(event) => {
-                        const audio = event.currentTarget;
-                        const position = audio.currentTime;
-
-                        setCurrentTime(position);
-
-                        if (selectedProjectId) {
-                          localStorage.setItem(
-                            `${PLAYBACK_POSITION_PREFIX}${selectedProjectId}`,
-                            String(position)
-                          );
-                        }
-
-                      }}
-
-
-                      onSeeked={(event) => {
-                        const position = event.currentTarget.currentTime;
-                        lastPreviewPositionRef.current = position;
-
-                        // Reset pauses when seeking backwards.
-                        for (const pause of teachingPauses) {
-                          if (position < pause.time - 0.4) {
-                            completedPreviewPausesRef.current.delete(pause.id);
-                          }
-                        }
-
-                        setCurrentTime(position);
-
-                        if (selectedProjectId) {
-                          localStorage.setItem(
-                            `${PLAYBACK_POSITION_PREFIX}${selectedProjectId}`,
-                            String(position)
-                          );
-                        }
-                      }}
-
-                      onLoadedMetadata={(event) => {
-                        const audio = event.currentTarget;
-                        const duration = audio.duration;
-                        const durationIsValid = Number.isFinite(duration) && duration > 0;
-
-                        setAudioDuration(durationIsValid ? duration : null);
-                        setNarrationDurationStatus(durationIsValid ? "ready" : "unavailable");
-
-                        if (!selectedProjectId || !durationIsValid) {
-                          return;
-                        }
-
-                        const storageKey = `${PLAYBACK_POSITION_PREFIX}${selectedProjectId}`;
-                        const savedPosition = Number(localStorage.getItem(storageKey));
-
-                        const restoredPosition =
-                          Number.isFinite(savedPosition) &&
-                            savedPosition >= 0 &&
-                            savedPosition < duration
-                            ? savedPosition
-                            : 0;
-
-                        audio.currentTime = restoredPosition;
-                        lastPreviewPositionRef.current = restoredPosition;
-                        setCurrentTime(restoredPosition);
-
-                        localStorage.setItem(
-                          storageKey,
-                          String(restoredPosition)
-                        );
-                      }}
-                      onError={() => {
-                        setAudioDuration(null);
-                        setNarrationDurationStatus("unavailable");
-                      }}
-                      style={{ width: "100%", marginTop: "12px" }}
-                      src={apiUrl(projects.find(
-                        (project) => project.id === selectedProjectId
-                      )?.narration?.url ?? "")}
-                    >
-                      Your browser does not support audio playback.
-                    </audio>
-
-                    {activeStage === "narration" && <>
-                    <div className="narration-details">
-
-                      <p>
-                        <strong>Playback Position:</strong>{" "}
-                        {formatDuration(currentTime)}
-                      </p>
-
-                      <p>
-                        <strong>Duration:</strong>{" "}
-                        {audioDuration !== null && Number.isFinite(audioDuration) && audioDuration > 0
-                          ? formatDuration(audioDuration)
-                          : narrationDurationStatus === "loading"
-                            ? "Loading narration duration…"
-                            : "Unavailable — reselect narration or use a supported audio file"}
-                      </p>
-
-                      <p>
-                        <strong>File Size:</strong>{" "}
-                        {(
-                          (projects.find(
-                            (project) => project.id === selectedProjectId
-                          )?.narration?.size ?? 0) /
-                          (1024 * 1024)
-                        ).toFixed(2)} MB
-                      </p>
-                    </div>
-
-                    <section className="narration-segmentation" id="guided-step-segments" aria-labelledby="narration-segments-heading">
-                      <h4 id="narration-segments-heading">Automatic Narration Segments</h4>
-                      <p>
-                        FFmpeg suggests audio activity ranges from silence boundaries. These timestamps do not include speech transcription or semantic meaning.
-                      </p>
-                      <button
-                        type="button"
-                        className="primary-button"
-                        disabled={segmenting}
-                        onClick={suggestNarrationSegments}
-                      >
-                        {segmenting ? "Detecting boundaries..." : narrationSegments.length ? "Detect Again" : "Suggest Segments"}
-                      </button>
-                      {segmentationMessage && <p role="status">{segmentationMessage}</p>}
-                      {narrationSegments.length > 0 && (
-                        <>
-                          <p>Review and adjust the suggested boundaries. Applying them appends empty, non-overlapping visual scene slots; it never replaces or changes existing scenes.</p>
-                          <ul className="narration-segments-list">
-                            {narrationSegments.map((segment, index) => (
-                              <li className="narration-segment-card" key={segment.id}>
-                                <strong>Segment {index + 1}</strong>
-                                <div className="narration-segment-times">
-                                  <label htmlFor={`segment-start-${segment.id}`}>Start (seconds)</label>
-                                  <input
-                                    id={`segment-start-${segment.id}`}
-                                    type="number"
-                                    min="0"
-                                    max={audioDuration ?? undefined}
-                                    step="0.01"
-                                    value={segment.startTime}
-                                    onChange={(event) => updateNarrationSegment(segment.id, "startTime", Number(event.target.value))}
-                                  />
-                                  <label htmlFor={`segment-end-${segment.id}`}>End (seconds)</label>
-                                  <input
-                                    id={`segment-end-${segment.id}`}
-                                    type="number"
-                                    min={segment.startTime + 0.01}
-                                    max={audioDuration ?? undefined}
-                                    step="0.01"
-                                    value={segment.endTime}
-                                    onChange={(event) => updateNarrationSegment(segment.id, "endTime", Number(event.target.value))}
-                                  />
-                                </div>
-                                <p>Duration: {segment.duration.toFixed(3)}s</p>
-                                <div className="narration-segment-actions">
-                                  <button type="button" disabled={segment.duration < 0.24} onClick={() => splitNarrationSegment(segment.id)}>Split at midpoint</button>
-                                  {index < narrationSegments.length - 1 && <button type="button" onClick={() => mergeNarrationSegmentWithNext(index)}>Merge with next</button>}
-                                </div>
-                              </li>
-                            ))}
-                          </ul>
-                          <button
-                            type="button"
-                            className="primary-button"
-                            onClick={appendNarrationSegmentsAsScenes}
-                          >
-                            Append Non-overlapping Scene Slots
-                          </button>
-                        </>
-                      )}
-                    </section>
-                    </>}
-
-                    {activeStage === "audio" && audioDuration !== null && audioDuration > 0 && (
-                      <section className="timeline-section">
-                        <h3>Smart Timeline</h3>
-
-                        <div className="timeline-labels">
-                          <span>00:00</span>
-                          <span>{formatDuration(audioDuration / 2)}</span>
-                          <span>{formatDuration(audioDuration)}</span>
-                        </div>
-
-                        <div
-                          className="timeline-track"
-                          role="slider"
-                          tabIndex={0}
-                          aria-label="Narration playback position"
-                          aria-valuemin={0}
-                          aria-valuemax={Math.floor(audioDuration)}
-                          aria-valuenow={Math.min(
-                            Math.floor(currentTime),
-                            Math.floor(audioDuration)
-                          )}
-                          aria-valuetext={formatDuration(currentTime)}
-                          onClick={(event) => {
-                            seekToPosition(event.clientX, event.currentTarget);
-                          }}
-                          onKeyDown={(event) => {
-                            if (!audioRef.current) return;
-
-                            if (event.key === "ArrowRight" || event.key === "ArrowLeft") {
-                              event.preventDefault();
-
-                              const direction = event.key === "ArrowRight" ? 1 : -1;
-                              const newTime = Math.min(
-                                audioDuration,
-                                Math.max(0, audioRef.current.currentTime + direction * 5)
-                              );
-
-                              audioRef.current.currentTime = newTime;
-                              setCurrentTime(newTime);
-                            }
-                          }}
-
-
-                        >
-                          <div
-                            className="timeline-progress"
-                            style={{
-                              width: `${Math.min(
-                                100,
-                                Math.max(0, (currentTime / audioDuration) * 100)
-                              )}%`,
-                            }}
-                          />
-
-                          {teachingPauses.map((pause) => (
-                            <button
-                              key={pause.id}
-                              type="button"
-                              className={`teaching-pause-marker ${selectedPauseId === pause.id ? "selected" : ""
-                                }`}
-                              style={{
-                                left: `${Math.min(
-                                  100,
-                                  Math.max(0, (pause.time / audioDuration) * 100)
-                                )}%`,
-                              }}
-                              title={`${pause.label} at ${formatDuration(pause.time)} (${pause.duration}s)`}
-                              aria-label={`Select ${pause.label} at ${formatDuration(pause.time)}`}
-                              aria-pressed={selectedPauseId === pause.id}
-                              onClick={(event) => {
-                                event.stopPropagation();
-                                setSelectedPauseId(pause.id);
-                              }}
-                            />
-                          ))}
-
-                          <div
-                            className="timeline-playhead"
-                            style={{
-                              left: `${Math.min(
-                                100,
-                                Math.max(0, (currentTime / audioDuration) * 100)
-                              )}%`,
-                            }}
-                          />
-                        </div>
-
-                        <p className="timeline-position">
-                          Current Position: {formatDuration(currentTime)}
-                        </p>
-
-                        <div className="teaching-pauses" id="guided-step-pauses">
-                          <button
-                            type="button"
-                            className="primary-button"
-                            onClick={addTeachingPause}
-                          >
-                            + Add Teaching Pause
-                          </button>
-
-                          <h4>Teaching Pauses ({teachingPauses.length})</h4>
-
-                          {selectedPauseId && teachingPauses.some(
-                            (pause) => pause.id === selectedPauseId
-                          ) && (
-                              <p className="selected-pause-message">
-                                Selected: {teachingPauses.find(
-                                  (pause) => pause.id === selectedPauseId
-                                )?.label}
-                              </p>
-                            )}
-
-                          {teachingPauses.length === 0 ? (
-                            <p>No teaching pauses added yet.</p>
-                          ) : (
-                            <ul className="pause-list">
-                              {teachingPauses.map((pause) => (
-                                <li
-                                  key={pause.id}
-                                  ref={selectedPauseId === pause.id ? selectedPauseCardRef : null}
-                                  className={`pause-item ${selectedPauseId === pause.id ? "pause-item-selected" : ""
-                                    }`}
-                                >
-                                  <div className="pause-item-header">
-                                    <strong>{formatDuration(pause.time)}</strong>
-
-                                    <button
-                                      type="button"
-                                      className="pause-jump-button"
-                                      onClick={() => jumpToTeachingPause(pause)}
-                                      aria-label={`Jump to ${pause.label} at ${formatDuration(pause.time)}`}
-                                    >
-                                      Jump to Time
-                                    </button>
-
-                                    <button
-                                      type="button"
-                                      className="pause-delete-button"
-                                      onClick={() => deleteTeachingPause(pause.id)}
-                                      aria-label={`Delete pause at ${formatDuration(pause.time)}`}
-                                    >
-                                      Delete
-                                    </button>
-                                  </div>
-
-                                  <label htmlFor={`pause-label-${pause.id}`}>
-                                    Pause Label
-                                  </label>
-
-                                  <input
-                                    id={`pause-label-${pause.id}`}
-                                    type="text"
-                                    value={pause.label}
-                                    onChange={(event) =>
-                                      updateTeachingPause(pause.id, {
-                                        label: event.target.value,
-                                      })
-                                    }
-                                  />
-
-                                  <label htmlFor={`pause-duration-${pause.id}`}>
-                                    Duration (seconds)
-                                  </label>
-
-                                  <input
-                                    id={`pause-duration-${pause.id}`}
-                                    type="number"
-                                    min="1"
-                                    max="60"
-                                    step="1"
-                                    value={pause.duration}
-                                    onChange={(event) => {
-                                      const duration = Number(event.target.value);
-
-                                      if (
-                                        Number.isInteger(duration) &&
-                                        duration >= 1 &&
-                                        duration <= 60
-                                      ) {
-                                        updateTeachingPause(pause.id, { duration });
-                                      }
-                                    }}
-                                  />
-                                </li>
-                              ))}
-                            </ul>
-                          )}
-
-                        </div>
-
-                      </section>
-                    )}
-
-                  </div>
-                )}
-            </div>
-            {activeStage === "audio" && (audioDuration === null || narrationDurationStatus !== "ready") && (
-              <p className="audio-timing-message" role="status">
-                {selectedProject?.narration
-                  ? narrationDurationStatus === "loading"
-                    ? "Loading narration duration. Teaching pause timing will appear when audio metadata is ready."
-                    : "Narration duration is unavailable. Reselect a supported audio file to enable teaching pause timing."
-                  : "Upload narration in Stage 1 to enable teaching pause timing. Background music can be set up now."}
-              </p>
-            )}
-            {(activeStage === "visuals" || activeStage === "export") && <section className="visual-scenes-section">
-              {activeStage === "visuals" && <>
-              <div className="alignment-panel" id="guided-step-visuals">
-                <div className="automatic-preparation">
-                  <div>
-                    <h3>Prepare scenes automatically</h3>
-                    <p>Reuse existing narration segments, or detect silence boundaries with FFmpeg, then assign selected uploads in order. This does not transcribe narration or choose visuals by meaning.</p>
-                  </div>
-                  <button type="button" className="primary-button" onClick={() => void prepareScenesAutomaticallyNow()} disabled={preparingScenes || !selectedProject?.narration?.filename}>
-                    {preparingScenes ? "Preparing scenes…" : "Prepare Scenes Automatically"}
-                  </button>
-                </div>
-                {!selectedProject?.narration?.filename && <p className="alignment-message" role="status">Upload narration in Stage 1 to prepare scene slots. Visual uploads can be added here at any time.</p>}
-                {alignmentMessage && <p className="alignment-message" role="status">{alignmentMessage}</p>}
-                <div className="visual-scenes-header">
-                  <div>
-                    <h3>Project Visual Library</h3>
-                    <p>Choose existing uploads from this project, then preview their timestamped scene assignments.</p>
-                  </div>
-                  <button type="button" className="secondary-button" onClick={() => selectedProjectId && void refreshVisualLibrary(selectedProjectId)}>
-                    Refresh library
-                  </button>
-                </div>
-                {visualLibraryMessage && <p className="alignment-message" role="status">{visualLibraryMessage}</p>}
-                {visualLibrary.length > 0 && (
-                  <ul className="alignment-media-list">
-                    {visualLibrary.map((asset) => (
-                      <li key={asset.id} className="alignment-media-card">
-                        {asset.mediaType === "image" ? (
-                          <img src={apiUrl(asset.url)} alt="" />
-                        ) : (
-                          <video src={apiUrl(asset.url)} muted playsInline preload="metadata" />
-                        )}
-                        <label>
-                          <input
-                            type="checkbox"
-                            checked={selectedAlignmentAssets.includes(asset.id)}
-                            onChange={() => toggleAlignmentAsset(asset.id)}
-                          />
-                          {alignmentMode === "sequential" && selectedAlignmentAssets.includes(asset.id)
-                            ? `${selectedAlignmentAssets.indexOf(asset.id) + 1}. `
-                            : ""}{asset.originalName}
-                        </label>
-                        <small>{asset.mediaType} · {(asset.size / (1024 * 1024)).toFixed(1)} MB</small>
-                      </li>
-                    ))}
-                  </ul>
-                )}
-                <fieldset className="alignment-mode">
-                  <legend>Placement mode</legend>
-                  <label><input type="radio" name="alignment-mode" checked={alignmentMode === "sequential"} onChange={() => setAlignmentMode("sequential")} /> Sequential (selected order)</label>
-                  <label><input type="radio" name="alignment-mode" checked={alignmentMode === "manual"} onChange={() => setAlignmentMode("manual")} /> Manual Mapping (choose per segment)</label>
-                </fieldset>
-                {narrationSegments.length === 0 ? (
-                  <p>Create or generate narration segments in Audio Studio before aligning visuals.</p>
-                ) : (
-                  <>
-                    {alignmentMode === "manual" && (
-                      <div className="alignment-mappings">
-                        {narrationSegments.map((segment, index) => (
-                          <label key={segment.id}>
-                            Segment {index + 1} · {formatDuration(segment.startTime)}–{formatDuration(segment.endTime)}
-                            <select value={manualAlignmentAssets[segment.id] ?? ""} onChange={(event) => setManualAlignmentAssets((current) => ({ ...current, [segment.id]: event.target.value }))}>
-                              <option value="">No media</option>
-                              {visualLibrary.map((asset) => <option key={asset.id} value={asset.id}>{asset.originalName} ({asset.mediaType})</option>)}
-                            </select>
-                          </label>
-                        ))}
-                      </div>
-                    )}
-                    <h4>Assignment preview</h4>
-                    <p className="alignment-render-note">{alignmentMode === "sequential"
-                      ? "Sequential assignment follows the selected asset order. It only fills empty matching narration slots or adds non-overlapping scenes; populated scenes and manual edits are kept."
-                      : "Manual mapping applies only the asset chosen for each segment. Populated scenes and manual edits are kept."}</p>
-                    <ul className="alignment-preview-list">
-                      {narrationSegments.map((segment, index) => {
-                        const assignment = alignmentAssignments[index];
-                        const asset = visualLibrary.find((item) => item.id === assignment?.assetId);
-                        const added = alignmentPreview.addedScenes.find((scene) => scene.narrationSegmentId === segment.id);
-                        const filled = alignmentPreview.filledSlots.find((scene) => scene.narrationSegmentId === segment.id);
-                        const skipped = alignmentPreview.skipped.find((item) => item.segmentId === segment.id);
-                        const previewStart = filled?.startTime ?? segment.startTime;
-                        const previewDuration = filled?.duration ?? segment.endTime - segment.startTime;
-                        const previewEnd = previewStart + previewDuration;
-                        return (
-                          <li key={segment.id} className={added || filled ? "assignment-ready" : "assignment-skipped"}>
-                            <strong>Segment {index + 1}</strong>
-                            <span>{formatDuration(previewStart)}–{formatDuration(previewEnd)} · {previewDuration.toFixed(3)} sec</span>
-                            <span>{asset?.originalName ?? "No media selected"}</span>
-                            <span>{filled ? "Ready to fill existing scene slot" : added ? "Ready to add new scene" : alignmentSkipLabel(skipped?.reason ?? "no-media-selected", skipped?.conflictingSceneTitle)}</span>
-                          </li>
-                        );
-                      })}
-                    </ul>
-                    <p className="alignment-render-note">Short video clips loop to fill their scene duration; the renderer preserves aspect ratio with letterboxing/pillarboxing.</p>
-                    <button type="button" className="primary-button" onClick={() => applyVisualAlignment()} disabled={alignmentChangeCount === 0}>Apply proposed scene assignments ({alignmentChangeCount})</button>
-                    {alignmentMode !== "sequential" && (
-                      <button type="button" className="secondary-button" onClick={() => setAlignmentMode("sequential")}>Preview selected assets sequentially</button>
-                    )}
-                    {alignmentMessage && <p className="alignment-message" role="status">{alignmentMessage}</p>}
-                  </>
-                )}
-              </div>
-              </>}
-              <div className="active-visual-scene">
-                <h3>Active Visual Scene</h3>
-
-                <p>
-                  Narration position: {formatDuration(currentTime)}
-                </p>
-                <div className="synchronized-preview">
-                  {activeVisualScene?.mediaUrl ? (
-                    activeVisualScene.mediaType === "image" ? (
-                      <img
-                        key={activeVisualScene.id}
-                        src={apiUrl(activeVisualScene.mediaUrl)}
-                        alt={activeVisualScene.title || "Active scene"}
-                      />
-                    ) : (
-                      <video
-                        key={activeVisualScene.id}
-                        ref={visualVideoRef}
-                        src={apiUrl(activeVisualScene.mediaUrl)}
-                        muted
-                        playsInline
-                        preload="auto"
-                        onLoadedMetadata={() => {
-                          const audio = audioRef.current;
-                          if (!audio) return;
-                          setCurrentTime(audio.currentTime);
-                          setPreviewSyncRevision((revision) => revision + 1);
-                        }}
-                      />
-                    )
-                  ) : (
-                    <div className="synchronized-preview-placeholder">
-                      <p>
-                        {activeVisualScene
-                          ? "No media uploaded for this scene."
-                          : "No active visual scene at this position."}
-                      </p>
-                    </div>
-                  )}
-                </div>
-                {activeVisualScene ? (
-                  <div className="active-scene-details">
-                    <strong>{activeVisualScene.title}</strong>
-
-                    <p>
-                      Scene starts at{" "}
-                      {formatDuration(activeVisualScene.startTime)}
-                    </p>
-
-                    <p>
-                      Duration: {activeVisualScene.duration} seconds
-                    </p>
-
-                    <p>
-                      Media type: {activeVisualScene.mediaType}
-                    </p>
-                  </div>
-                ) : (
-                  <p>No visual scene is active at this position.</p>
-                )}
-              </div>
-              {activeStage === "visuals" && <>
-              <div className="visual-scenes-header">
-                <div>
-                  <h3>Visual Scenes ({visualScenes.length})</h3>
-                  <p>
-                    Plan the images and video clips that will appear
-                    alongside your narration.
-                  </p>
-                </div>
-
-                <button
-                  type="button"
-                  className="primary-button"
-                  onClick={addVisualScene}
-                >
-                  + Add Visual Scene
-                </button>
-              </div>
-
-              {visualScenes.length === 0 ? (
-                <p>No visual scenes added yet.</p>
-              ) : (
-                <ul className="visual-scenes-list">
-                  {visualScenes.map((scene) => (
-                    <li key={scene.id} className="visual-scene-card">
-                      <div className="visual-scene-card-header">
-                        <strong>{scene.title || "Untitled Scene"}</strong>
-
-                        <button
-                          type="button"
-                          className="pause-delete-button"
-                          onClick={() => deleteVisualScene(scene.id)}
-                        >
-                          Delete
-                        </button>
-                      </div>
-
-                      <label htmlFor={`scene-title-${scene.id}`}>
-                        Scene Title
-                      </label>
-                      <input
-                        id={`scene-title-${scene.id}`}
-                        type="text"
-                        value={scene.title}
-                        onChange={(event) =>
-                          updateVisualScene(scene.id, {
-                            title: event.target.value,
-                          })
-                        }
-                      />
-
-                      <label htmlFor={`scene-start-${scene.id}`}>
-                        Start Time (seconds)
-                      </label>
-                      <input
-                        id={`scene-start-${scene.id}`}
-                        type="number"
-                        min="0"
-                        step="0.1"
-                        value={scene.startTime}
-                        onChange={(event) => {
-                          const value = Number(event.target.value);
-
-                          if (Number.isFinite(value) && value >= 0) {
-                            updateVisualScene(scene.id, {
-                              startTime: value,
-                            });
-                          }
-                        }}
-                      />
-
-                      <label htmlFor={`scene-duration-${scene.id}`}>
-                        Duration (seconds)
-                      </label>
-                      <input
-                        id={`scene-duration-${scene.id}`}
-                        type="number"
-                        min="0.1"
-                        step="0.1"
-                        value={scene.duration}
-                        onChange={(event) => {
-                          const value = Number(event.target.value);
-
-                          if (Number.isFinite(value) && value > 0) {
-                            updateVisualScene(scene.id, {
-                              duration: value,
-                            });
-                          }
-                        }}
-                      />
-
-                      <label htmlFor={`scene-type-${scene.id}`}>
-                        Media Type
-                      </label>
-                      <select
-                        id={`scene-type-${scene.id}`}
-                        value={scene.mediaType}
-                        onChange={(event) =>
-                          updateVisualScene(scene.id, {
-                            mediaType: event.target.value as VisualMediaType,
-                          })
-                        }
-                      >
-
-                        <option value="image">Image</option>
-                        <option value="video">Video</option>
-                      </select>
-
-                      <p className="visual-scene-summary">
-                        Starts at {formatDuration(scene.startTime)} —
-                        Duration: {scene.duration}s —
-                        {scene.mediaType === "image" ? " Image" : " Video"}
-                      </p>
-
-
-                      <div className="visual-scene-upload">
-                        <label htmlFor={`visual-upload-${scene.id}`}>
-                          Upload Image or Video
-                        </label>
-
-                        <input
-                          id={`visual-upload-${scene.id}`}
-                          type="file"
-                          accept=".jpg,.jpeg,.png,.webp,.mp4,image/jpeg,image/png,image/webp,video/mp4"
-                          onChange={(event) => {
-                            const file = event.target.files?.[0];
-
-                            if (file) {
-                              setVisualFiles((previous) => ({
-                                ...previous,
-                                [scene.id]: file,
-                              }));
-                            }
-                          }}
-                        />
-
-                        {visualFiles[scene.id] && (
-                          <p>
-                            Selected: {visualFiles[scene.id].name}
-                          </p>
-                        )}
-
-                        <button
-                          type="button"
-                          className="primary-button"
-                          disabled={
-                            !visualFiles[scene.id] ||
-                            uploadingSceneId !== null
-                          }
-                          onClick={() => uploadVisualScene(scene)}
-                        >
-                          {uploadingSceneId === scene.id
-                            ? "Uploading..."
-                            : "Upload Media"}
-                        </button>
-
-                        {visualUploadMessages[scene.id] && (
-                          <p role="status">
-                            {visualUploadMessages[scene.id]}
-                          </p>
-                        )}
-
-                        {scene.mediaUrl && (
-                          <div className="visual-scene-preview">
-                            <p className="visual-scene-media-status">
-                              Uploaded: {scene.originalName}
-                            </p>
-
-                            {scene.mediaType === "image" ? (
-                              <img
-                                src={apiUrl(scene.mediaUrl)}
-                                alt={scene.title || "Visual scene image"}
-                                loading="lazy"
-                              />
-                            ) : (
-                              <video
-                                src={apiUrl(scene.mediaUrl)}
-                                controls
-                                preload="metadata"
-                                playsInline
-                              >
-                                Your browser does not support video playback.
-                              </video>
-                            )}
-                          </div>
-                        )}
-                      </div>
-                    </li>
-                  ))}
-                </ul>
-              )}
-              </>}
-            </section>
-            }
-
-
-            {activeStage === "export" && <section className="video-export-section" id="guided-step-export">
-              <h3>Video Export</h3>
-
-              <p>
-                Combine your narration and visual scenes into an MP4 video.
-              </p>
-
-              <div className="export-readiness" role="status" aria-live="polite">
-                <h4>Export readiness</h4>
-                <dl>
-                  <div><dt>Narration</dt><dd>{selectedProject?.narration?.originalName ?? "Missing narration"}{selectedProject?.narration?.filename
-                    ? audioDuration !== null && Number.isFinite(audioDuration) && audioDuration > 0
-                      ? ` · ${formatDuration(audioDuration)}`
-                      : narrationDurationStatus === "loading"
-                        ? " · duration loading from narration audio"
-                        : " · duration unavailable; reselect a supported narration file"
-                    : ""}</dd></div>
-                  <div><dt>Visuals</dt><dd>{exportValidation.populatedSceneCount} of {exportValidation.sceneCount} scenes have media</dd></div>
-                  <div><dt>Teaching pauses</dt><dd>{exportValidation.pauseCount} pause{exportValidation.pauseCount === 1 ? "" : "s"} · {formatDuration(exportValidation.pauseDuration)} added</dd></div>
-                  <div><dt>Background music</dt><dd>{selectedProject?.backgroundMusic?.originalName
-                    ? `${selectedProject.backgroundMusic.originalName} · volume ${Math.round((selectedProject.backgroundMusicSettings?.musicVolume ?? DEFAULT_BACKGROUND_MUSIC_SETTINGS.musicVolume) * 100)}%, under speech ${Math.round((selectedProject.backgroundMusicSettings?.narrationDuckingLevel ?? DEFAULT_BACKGROUND_MUSIC_SETTINGS.narrationDuckingLevel) * 100)}%, pauses ${Math.round((selectedProject.backgroundMusicSettings?.teachingPauseMusicLevel ?? DEFAULT_BACKGROUND_MUSIC_SETTINGS.teachingPauseMusicLevel) * 100)}%`
-                    : "No music; narration exports as usual"}</dd></div>
-                  <div><dt>Estimated output duration</dt><dd>{exportValidation.outputDuration !== null ? formatDuration(exportValidation.outputDuration) : "Unavailable until a valid narration duration is loaded"}</dd></div>
-                </dl>
-                {exportValidation.issues.length > 0 && (
-                  <ul className="export-validation-issues">
-                    {exportValidation.issues.map((issue) => <li key={issue.code}>{issue.message}</li>)}
-                  </ul>
-                )}
-                {exportValidation.ready && <p className="export-ready-message">All required media and timing checks passed. Export uses the existing mixed-media renderer.</p>}
-              </div>
-
-              <button
-                className="primary-button"
-                onClick={generateVideo}
-                disabled={rendering || !exportValidation.ready}
-              >
-                {rendering ? "Generating Video..." : "Generate Video"}
-              </button>
-
-
-              {rendering && (
-                <div className="render-progress" role="status">
-                  <p>Rendering video...</p>
-                  <p>
-                    Elapsed time:{" "}
-                    {String(Math.floor(renderSeconds / 60)).padStart(2, "0")}:
-                    {String(renderSeconds % 60).padStart(2, "0")}
-                  </p>
-                  <p>
-                    Processing your narration and visual scenes.
-                    Please keep this page open.
-                  </p>
-                </div>
-              )}
-
-              {renderMessage && (
-                <p role="status">{renderMessage}</p>
-              )}
-
-
-
-              {renderedVideoUrl && (
-                <div className="rendered-video-section">
-                  <h4>Video Ready!</h4>
-
-                  <p>
-                    Your video has been generated successfully.
-                    Preview it below or download the MP4 file.
-                  </p>
-
-                  <video
-                    key={renderedVideoUrl}
-                    className="rendered-video-player"
-                    src={renderedVideoUrl}
-                    controls
-                    playsInline
-                    preload="metadata"
-                  >
-                    Your browser does not support HTML5 video playback.
-                  </video>
-
-                  <a
-                    className="primary-button download-video-button"
-                    href={renderedVideoUrl}
-                    download
-                  >
-                    Download MP4
-                  </a>
-                </div>
-              )}
-
-            </section>}
-
-            <div className="wizard-navigation" aria-label="Stage navigation">
-              <button
-                type="button"
-                className="secondary-button"
-                onClick={() => moveEditorStage(-1)}
-                disabled={activeStage === "narration"}
-              >
-                Back
-              </button>
-              <span>Stage {(["narration", "visuals", "audio", "export"] as const).indexOf(activeStage) + 1} of 4</span>
-              {activeStage !== "export" ? (
-                <button type="button" className="primary-button" onClick={() => moveEditorStage(1)}>
-                  Continue
-                </button>
-              ) : (
-                <span className="wizard-final-stage-note">Use Generate Video above when readiness checks pass.</span>
-              )}
-            </div>
-            <button
-              className="primary-button"
-              onClick={() => setView("projects")}
-            >
-              Back to Projects
-            </button>
-          </section>
+        {view === "editor" && selectedProject && (
+          <Workstation
+            project={selectedProject}
+            scenes={visualScenes}
+            pauses={teachingPauses}
+            segments={narrationSegments}
+            assets={visualLibrary}
+            musicLibrary={musicLibrary}
+            selectedAssets={selectedAlignmentAssets}
+            audioDuration={audioDuration}
+            durationStatus={narrationDurationStatus}
+            currentTime={currentTime}
+            activeScene={activeVisualScene}
+            audioElement={narrationAudioElement}
+            videoRef={visualVideoRef}
+            renderedVideoUrl={renderedVideoUrl}
+            renderSeconds={renderSeconds}
+            validation={exportValidation}
+            musicSettings={selectedProject.backgroundMusicSettings ?? DEFAULT_BACKGROUND_MUSIC_SETTINGS}
+            narrationFile={audioFile}
+            visualFile={visualLibraryFile}
+            musicFile={musicFile}
+            uploadMessage={uploadMessage}
+            mediaMessage={visualLibraryMessage}
+            musicMessage={musicMessage}
+            segmentationMessage={segmentationMessage}
+            autoPrepareMessage={alignmentMessage}
+            renderStatus={renderMessage}
+            timelineMessage={timelineMessage}
+            uploadingNarration={uploading}
+            uploadingVisual={visualLibraryUploading}
+            uploadingMusic={musicUploading}
+            segmenting={segmenting}
+            preparing={preparingScenes}
+            rendering={rendering}
+            onBack={() => setView("projects")}
+            onNarrationFile={setAudioFile}
+            onVisualFile={setVisualLibraryFile}
+            onMusicFile={setMusicFile}
+            onUploadNarration={uploadNarration}
+            onUploadVisual={uploadVisualLibraryAsset}
+            onUploadMusic={uploadBackgroundMusic}
+            onRefreshAssets={() => { if (selectedProjectId) void refreshVisualLibrary(selectedProjectId); }}
+            onToggleAsset={(assetId) => setSelectedAlignmentAssets((previous) => previous.includes(assetId) ? previous.filter((id) => id !== assetId) : [...previous, assetId])}
+            onAutoPrepare={() => void prepareScenesAutomaticallyNow()}
+            onSuggestSegments={() => void suggestNarrationSegments()}
+            onUpdateSegment={updateNarrationSegment}
+            onSplitSegment={splitNarrationSegment}
+            onMergeSegment={mergeNarrationSegmentWithNext}
+            onAppendSlots={appendNarrationSegmentsAsScenes}
+            onSeek={seekToTime}
+            onSceneUpdate={updateVisualScene}
+            onSceneDelete={deleteVisualScene}
+            onAddScene={addVisualScene}
+            onPauseUpdate={updateTeachingPause}
+            onPauseDelete={deleteTeachingPause}
+            onAddPause={addTeachingPause}
+            onJumpPause={jumpToTeachingPause}
+            onMusicSelect={(filename) => {
+              const asset = musicLibrary.find((item) => item.filename === filename);
+              updateProjectMusic({ backgroundMusic: asset ? { filename: asset.filename, originalName: asset.originalName } : undefined });
+              setMusicMessage(asset ? `${asset.originalName} selected for export.` : "Background music disabled; exports use narration only.");
+            }}
+            onMusicSetting={updateMusicSetting}
+            onGenerate={() => void generateVideo()}
+            formatTime={formatDuration}
+          />
         )}
       </main>
     </div>

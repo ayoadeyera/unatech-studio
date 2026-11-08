@@ -5,6 +5,11 @@ const path = require("node:path");
 
 const { prepareScenes } = require("./prepareScenes");
 
+// A project accepts up to 20 authored visual scenes. Teaching pauses can
+// split each scene into as many as three render slices, so the renderer must
+// allow the bounded pause-expanded timeline as well.
+const MAX_RENDER_SEGMENTS = 120;
+
 const {
     buildVideoSegmentFilter,
 } = require("./buildVideoSegmentFilter");
@@ -54,8 +59,8 @@ async function renderMixedMediaVideo({
 
     const timeline = prepareScenes(scenes);
 
-    if (timeline.scenes.length > 20) {
-        throw new Error("Maximum 20 scenes per render.");
+    if (timeline.scenes.length > MAX_RENDER_SEGMENTS) {
+        throw new Error(`Maximum ${MAX_RENDER_SEGMENTS} render segments per export.`);
     }
 
 
@@ -279,4 +284,4 @@ async function renderMixedMediaVideo({
     };
 }
 
-module.exports = { renderMixedMediaVideo };
+module.exports = { renderMixedMediaVideo, MAX_RENDER_SEGMENTS };
