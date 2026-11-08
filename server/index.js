@@ -259,6 +259,26 @@ app.get("/api/projects/:projectId/background-music", requireValidProjectId, asyn
     return res.status(200).json({ success: true, music });
   } catch (error) { next(error); }
 });
+app.get("/api/projects/:projectId/background-music/:filename", requireValidProjectId, async (req, res, next) => {
+  const { filename, projectId } = req.params;
+  if (!MUSIC_FILENAME_PATTERN.test(filename)) {
+    return res.status(400).json({ success: false, message: "Invalid background music filename." });
+  }
+  const root = path.resolve(BACKGROUND_MUSIC_ROOT, projectId);
+  const filePath = path.resolve(root, filename);
+  if (!filePath.startsWith(`${root}${path.sep}`)) {
+    return res.status(400).json({ success: false, message: "Invalid background music path." });
+  }
+  try {
+    await fs.promises.access(filePath, fs.constants.R_OK);
+    return res.sendFile(filePath, (error) => {
+      if (error && !res.headersSent) res.status(error.status || 404).json({ success: false, message: "Background music file not found." });
+    });
+  } catch (error) {
+    if (error.code === "ENOENT") return res.status(404).json({ success: false, message: "Background music file not found." });
+    return next(error);
+  }
+});
 app.post("/api/projects/:projectId/background-music", requireValidProjectId, (req, res, next) => {
   uploadBackgroundMusic.single("music")(req, res, (error) => {
     if (error) return next(error);

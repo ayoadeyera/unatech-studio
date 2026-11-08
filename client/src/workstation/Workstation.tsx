@@ -23,13 +23,15 @@ interface Props {
   currentTime: number;
   activeScene: VisualScene | null;
   audioElement: ReactNode;
+  musicAudioElement: ReactNode;
+  monitorStatus: string;
   videoRef: React.RefObject<HTMLVideoElement | null>;
   renderedVideoUrl: string | null;
   renderSeconds: number;
   validation: GuidedExportValidation;
   musicSettings: BackgroundMusicSettings;
   narrationFile: File | null;
-  visualFile: File | null;
+  visualFiles: File[];
   musicFile: File | null;
   uploadMessage: string;
   mediaMessage: string;
@@ -44,9 +46,11 @@ interface Props {
   segmenting: boolean;
   preparing: boolean;
   rendering: boolean;
+  canUndo: boolean;
+  canRedo: boolean;
   onBack: () => void;
   onNarrationFile: (file: File | null) => void;
-  onVisualFile: (file: File | null) => void;
+  onVisualFiles: (files: File[]) => void;
   onMusicFile: (file: File | null) => void;
   onUploadNarration: () => void;
   onUploadVisual: () => void;
@@ -62,6 +66,8 @@ interface Props {
   onSeek: (time: number) => void;
   onSceneUpdate: (id: string, updates: Partial<Pick<VisualScene, "title" | "startTime" | "duration" | "mediaType" | "mediaUrl" | "originalName">>) => void;
   onSceneDelete: (id: string) => void;
+  onAssignAsset: (sceneId: string, assetId: string) => void;
+  onDropAsset: (sceneId: string, assetId: string) => void;
   onAddScene: () => void;
   onPauseUpdate: (id: string, updates: Partial<Pick<TeachingPause, "label" | "duration">>) => void;
   onPauseDelete: (id: string) => void;
@@ -70,6 +76,8 @@ interface Props {
   onMusicSelect: (filename: string) => void;
   onMusicSetting: (key: keyof BackgroundMusicSettings, value: number) => void;
   onGenerate: () => void;
+  onUndo: () => void;
+  onRedo: () => void;
   formatTime: (seconds: number) => string;
 }
 
@@ -98,20 +106,20 @@ export function Workstation(props: Props) {
 
   const library = <MediaLibraryPanel
     project={props.project} assets={props.assets} segments={props.segments}
-    selectedAssets={props.selectedAssets} narrationFile={props.narrationFile}
-    visualFile={props.visualFile} uploadMessage={props.uploadMessage}
+    selectedAssets={props.selectedAssets} selectedSceneId={selectedScene?.id ?? null} narrationFile={props.narrationFile}
+    visualFiles={props.visualFiles} uploadMessage={props.uploadMessage}
     mediaMessage={props.mediaMessage} segmentationMessage={props.segmentationMessage}
     autoPrepareMessage={props.autoPrepareMessage} uploadingNarration={props.uploadingNarration}
     uploadingVisual={props.uploadingVisual} segmenting={props.segmenting} preparing={props.preparing}
-    onNarrationFile={props.onNarrationFile} onVisualFile={props.onVisualFile}
+    onNarrationFile={props.onNarrationFile} onVisualFiles={props.onVisualFiles}
     onUploadNarration={props.onUploadNarration} onUploadVisual={props.onUploadVisual}
-    onRefresh={props.onRefreshAssets} onToggleAsset={props.onToggleAsset}
+    onRefresh={props.onRefreshAssets} onToggleAsset={props.onToggleAsset} onAssignAsset={props.onAssignAsset}
     onPrepare={props.onAutoPrepare} onSuggestSegments={props.onSuggestSegments}
     onUpdateSegment={props.onUpdateSegment} onSplitSegment={props.onSplitSegment}
     onMergeSegment={props.onMergeSegment} onAppendSlots={props.onAppendSlots}
   />;
   const preview = <PreviewPanel scene={props.activeScene} currentTime={props.currentTime}
-    duration={props.audioDuration} audio={props.audioElement} renderStatus={props.renderStatus}
+    duration={props.audioDuration} audio={props.audioElement} musicAudio={props.musicAudioElement} monitorStatus={props.monitorStatus} renderStatus={props.renderStatus}
     videoRef={props.videoRef} renderedVideoUrl={props.renderedVideoUrl} rendering={props.rendering} renderSeconds={props.renderSeconds} />;
   const inspector = <InspectorPanel
     project={props.project} scene={selectedScene} assets={props.assets} pauses={props.pauses}
@@ -131,9 +139,10 @@ export function Workstation(props: Props) {
     musicName={props.project.backgroundMusic?.originalName} message={timingMessage || props.timelineMessage}
     formatTime={props.formatTime} onSelectScene={selectScene} onSeek={props.onSeek}
     onCommitTiming={commitSceneTiming} onAddScene={props.onAddScene}
-    onSelectPause={props.onJumpPause}
+    onSelectPause={props.onJumpPause} onDropAsset={props.onDropAsset}
   />;
 
   return <WorkstationLayout title={props.project.title} savedLabel="Saved in this browser" onBack={props.onBack}
-    mediaLibrary={library} preview={preview} inspector={inspector} timeline={timeline} />;
+    mediaLibrary={library} preview={preview} inspector={inspector} timeline={timeline}
+    canUndo={props.canUndo} canRedo={props.canRedo} onUndo={props.onUndo} onRedo={props.onRedo} />;
 }

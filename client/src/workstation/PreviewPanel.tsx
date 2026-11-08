@@ -7,6 +7,8 @@ interface Props {
   currentTime: number;
   duration: number | null;
   audio: ReactNode;
+  musicAudio: ReactNode;
+  monitorStatus: string;
   renderStatus: string;
   videoRef: RefObject<HTMLVideoElement | null>;
   renderedVideoUrl: string | null;
@@ -14,7 +16,7 @@ interface Props {
   renderSeconds: number;
 }
 
-export function PreviewPanel({ scene, currentTime, duration, audio, renderStatus, videoRef, renderedVideoUrl, rendering, renderSeconds }: Props) {
+export function PreviewPanel({ scene, currentTime, duration, audio, musicAudio, monitorStatus, renderStatus, videoRef, renderedVideoUrl, rendering, renderSeconds }: Props) {
   return (
     <section className="workstation-preview-panel" aria-label="Synchronized preview">
       <header className="workstation-panel-heading"><h2>Live preview</h2><span>{duration && duration > 0 ? `${Math.round(duration)}s narration` : "Waiting for narration"}</span></header>
@@ -27,13 +29,14 @@ export function PreviewPanel({ scene, currentTime, duration, audio, renderStatus
         <span className="workstation-preview-time">{Math.floor(currentTime / 60).toString().padStart(2, "0")}:{Math.floor(currentTime % 60).toString().padStart(2, "0")}</span>
       </div>
       {audio}
+      {musicAudio}
       {rendering && <p className="workstation-render-progress" role="status">Rendering MP4 · {String(Math.floor(renderSeconds / 60)).padStart(2, "0")}:{String(renderSeconds % 60).padStart(2, "0")} elapsed</p>}
       {renderedVideoUrl && <section className="workstation-rendered-output" aria-label="Generated MP4">
         <h3>MP4 ready</h3>
         <video src={renderedVideoUrl} controls playsInline preload="metadata" />
         <a className="workstation-primary" href={renderedVideoUrl} download>Download MP4</a>
       </section>}
-      <div className="workstation-preview-status" role="status">{renderStatus || "Preview follows narration. Background music effects are applied on export."}</div>
+      <div className="workstation-preview-status" role="status">{renderStatus || monitorStatus}</div>
     </section>
   );
 }

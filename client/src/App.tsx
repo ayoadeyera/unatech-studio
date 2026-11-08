@@ -10,6 +10,9 @@ import type { BackgroundMusicAsset, NarrationSegment, Project, TeachingPause, Vi
 import { Workstation } from "./workstation/Workstation";
 import { snapTimelineTime, validateSceneTiming } from "./workstation/timelineEditing";
 import { createUuid } from "./workstation/createUuid";
+import { useLiveAudioMonitor } from "./workstation/useLiveAudioMonitor";
+import { recordProjectEdit, snapshotProjectEdits, travelProjectEdit, type ProjectEditHistories } from "./workstation/projectEditHistory";
+import { uploadVisualBatch } from "./workstation/visualBatchUpload";
 import "./App.css";
 
 type Preset = "Focused Teaching" | "Entertaining Presenter" | "High-Energy Explainer";
@@ -18,6 +21,7 @@ const STORAGE_KEY = "unatech-projects";
 const VIEW_STORAGE_KEY = "unatech-current-view";
 const SELECTED_PROJECT_KEY = "unatech-selected-project";
 const PLAYBACK_POSITION_PREFIX = "unatech-playback-position-";
+const EDIT_HISTORY_STORAGE_KEY = "unatech-project-edit-history-v1";
 function App() {
   const [apiStatus, setApiStatus] = useState("Connecting...");
   const [connected, setConnected] = useState(false);
@@ -27,6 +31,13 @@ function App() {
     } catch {
       return [];
     }
+  });
+  const [projectEditHistories, setProjectEditHistories] = useState<ProjectEditHistories>(() => {
+    try {
+      const saved = JSON.parse(localStorage.getItem(EDIT_HISTORY_STORAGE_KEY) || "{}") as ProjectEditHistories;
+      return Object.fromEntries(Object.entries(saved).map(([id, history]) => [id, { undo: history.undo ?? [], redo: history.redo ?? [] }]));
+    }
+    catch { return {}; }
   });
 
   const [view, setView] = useState<
@@ -69,7 +80,7 @@ function App() {
   const [renderMessage, setRenderMessage] = useState("");
   const [renderedVideoUrl, setRenderedVideoUrl] = useState<string | null>(null);
   const [visualLibrary, setVisualLibrary] = useState<AlignmentMediaAsset[]>([]);
-  const [visualLibraryFile, setVisualLibraryFile] = useState<File | null>(null);
+  const [visualLibraryFiles, setVisualLibraryFiles] = useState<File[]>([]);
   const [visualLibraryUploading, setVisualLibraryUploading] = useState(false);
   const [timelineMessage, setTimelineMessage] = useState("");
   const [visualLibraryMessage, setVisualLibraryMessage] = useState("");
@@ -83,6 +94,7 @@ function App() {
   const [currentTime, setCurrentTime] = useState(0);
   const [previewSyncRevision, setPreviewSyncRevision] = useState(0);
   const [selectedPauseId, setSelectedPauseId] = useState<string | null>(null);
+  const [previewTeachingPauseActive, setPreviewTeachingPauseActive] = useState(false);
   const selectedProject = projects.find(
     (project) => project.id === selectedProjectId
   );
@@ -124,13 +136,27 @@ function App() {
   );
 
   const audioRef = useRef<HTMLAudioElement | null>(null);
+  const musicAudioRef = useRef<HTMLAudioElement | null>(null);
   const visualVideoRef = useRef<HTMLVideoElement | null>(null);
   const selectedPauseCardRef = useRef<HTMLLIElement | null>(null);
   const completedPreviewPausesRef = useRef<Set<string>>(new Set());
   const teachingPauseTimerRef = useRef<number | null>(null);
+  const teachingPauseFadeTimerRef = useRef<number | null>(null);
   const isTeachingPauseActiveRef = useRef(false);
   const lastPreviewPositionRef = useRef(0);
   const preparingScenesRef = useRef(false);
+
+  const musicPreviewUrl = selectedProject?.backgroundMusic?.filename && selectedProjectId
+    ? apiUrl(`/api/projects/${selectedProjectId}/background-music/${encodeURIComponent(selectedProject.backgroundMusic.filename)}`)
+    : null;
+  const liveMonitor = useLiveAudioMonitor({
+    narrationRef: audioRef,
+    musicRef: musicAudioRef,
+    musicUrl: musicPreviewUrl,
+    settings: selectedProject?.backgroundMusicSettings ?? DEFAULT_BACKGROUND_MUSIC_SETTINGS,
+    teachingPause: previewTeachingPauseActive,
+  });
+  const musicTransitionDuration = selectedProject?.backgroundMusicSettings?.transitionDuration ?? DEFAULT_BACKGROUND_MUSIC_SETTINGS.transitionDuration;
 
   useEffect(() => {
     if (!selectedProjectId) return;
@@ -175,28 +201,33 @@ function App() {
   }, []);
 
   async function uploadVisualLibraryAsset() {
-    if (!selectedProjectId || !visualLibraryFile || visualLibraryUploading) return;
-    const file = visualLibraryFile;
-    const extension = file.name.split(".").pop()?.toLowerCase();
-    const allowed = ["jpg", "jpeg", "png", "webp", "mp4"];
-    if (!allowed.includes(extension ?? "") || file.size > 100 * 1024 * 1024) {
-      setVisualLibraryMessage(file.size > 100 * 1024 * 1024
-        ? "Visual media must be smaller than 100 MB."
-        : "Choose a JPG, PNG, WebP, or MP4 file.");
+    if (!selectedProjectId || !visualLibraryFiles.length || visualLibraryUploading) return;
+    const invalid = visualLibraryFiles.find((file) => {
+      const extension = file.name.split(".").pop()?.toLowerCase();
+      return !["jpg", "jpeg", "png", "webp", "mp4"].includes(extension ?? "") || file.size > 100 * 1024 * 1024;
+    });
+    if (invalid) {
+      setVisualLibraryMessage(invalid.size > 100 * 1024 * 1024
+        ? `${invalid.name} is larger than 100 MB.`
+        : `${invalid.name} is not a JPG, PNG, WebP, or MP4 file.`);
       return;
     }
+    const files = visualLibraryFiles;
     setVisualLibraryUploading(true);
-    setVisualLibraryMessage("Uploading visual asset…");
     try {
-      const formData = new FormData();
-      formData.append("visual", file);
-      const data = await apiRequest<{ success: boolean; media?: AlignmentMediaAsset; message?: string }>(
-        `/api/projects/${selectedProjectId}/visuals`, { method: "POST", body: formData },
-      );
-      if (!data.success || !data.media) throw new Error(data.message || "Visual upload failed.");
-      setVisualLibraryFile(null);
+      const result = await uploadVisualBatch(files, async (file) => {
+        const formData = new FormData();
+        formData.append("visual", file);
+        const data = await apiRequest<{ success: boolean; media?: AlignmentMediaAsset; message?: string }>(
+          `/api/projects/${selectedProjectId}/visuals`, { method: "POST", body: formData },
+        );
+        if (!data.success || !data.media) throw new Error(data.message || "Visual upload failed.");
+        return data.media;
+      }, (index, file) => setVisualLibraryMessage(`Uploading ${index + 1} of ${files.length}: ${file.name}`));
+      setVisualLibraryFiles([]);
       await refreshVisualLibrary(selectedProjectId);
-      setVisualLibraryMessage(`${data.media.originalName} added to this project’s visual library.`);
+      const failures = result.failed.map((item) => `${item.name} (${item.message})`).join(", ");
+      setVisualLibraryMessage(`${result.uploaded.length} of ${files.length} visuals uploaded.${failures ? ` Failed: ${failures}.` : ""}`);
     } catch (error) {
       setVisualLibraryMessage(error instanceof Error ? error.message : "Visual upload failed.");
     } finally {
@@ -335,9 +366,14 @@ function App() {
       window.clearTimeout(teachingPauseTimerRef.current);
       teachingPauseTimerRef.current = null;
     }
+    if (teachingPauseFadeTimerRef.current !== null) {
+      window.clearTimeout(teachingPauseFadeTimerRef.current);
+      teachingPauseFadeTimerRef.current = null;
+    }
 
     // Reset the teaching-pause playback lock.
     isTeachingPauseActiveRef.current = false;
+    setPreviewTeachingPauseActive(false);
     lastPreviewPositionRef.current = 0;
     
     setSelectedProjectId(projectId);
@@ -346,6 +382,7 @@ function App() {
     setCurrentTime(0);
     setSelectedPauseId(null);
     setAudioFile(null);
+    setVisualLibraryFiles([]);
     setMusicFile(null);
     setMusicMessage("");
     setVisualLibraryMessage("Loading project media…");
@@ -365,6 +402,7 @@ function App() {
     );
 
     audioRef.current.currentTime = targetTime;
+    liveMonitor.syncTo(targetTime);
     setCurrentTime(targetTime);
     setSelectedPauseId(pause.id);
   }
@@ -372,6 +410,7 @@ function App() {
     if (!audioRef.current || audioDuration === null || audioDuration <= 0) return;
     const nextTime = Math.min(audioDuration, Math.max(0, time));
     audioRef.current.currentTime = nextTime;
+    liveMonitor.syncTo(nextTime);
     lastPreviewPositionRef.current = nextTime;
     setCurrentTime(nextTime);
   }
@@ -402,18 +441,71 @@ function App() {
 
     // Lock video playback throughout the teaching pause.
     isTeachingPauseActiveRef.current = true;
+    setPreviewTeachingPauseActive(true);
 
     audio.pause();
+
+    const transitionMs = Math.min(Math.max(0, musicTransitionDuration), pause.duration) * 1000;
+    teachingPauseFadeTimerRef.current = window.setTimeout(() => {
+      teachingPauseFadeTimerRef.current = null;
+      setPreviewTeachingPauseActive(false);
+    }, Math.max(0, pause.duration * 1000 - transitionMs));
 
     teachingPauseTimerRef.current = window.setTimeout(() => {
       teachingPauseTimerRef.current = null;
       isTeachingPauseActiveRef.current = false;
+      setPreviewTeachingPauseActive(false);
+      if (teachingPauseFadeTimerRef.current !== null) {
+        window.clearTimeout(teachingPauseFadeTimerRef.current);
+        teachingPauseFadeTimerRef.current = null;
+      }
 
       audio.play().catch(() => {
         // Browser playback may require user interaction.
       });
     }, pause.duration * 1000);
-  }, [teachingPauses]);
+  }, [musicTransitionDuration, teachingPauses]);
+
+  function recordCurrentProjectEdit(actionKey?: string) {
+    if (!selectedProjectId || !selectedProject) return;
+    const next = recordProjectEdit(projectEditHistories, selectedProjectId, snapshotProjectEdits(selectedProject), actionKey);
+    setProjectEditHistories(next);
+    localStorage.setItem(EDIT_HISTORY_STORAGE_KEY, JSON.stringify(next));
+  }
+
+  const travelCurrentProjectHistory = useCallback((direction: "undo" | "redo") => {
+    if (!selectedProjectId || !selectedProject) return;
+    const result = travelProjectEdit(projectEditHistories, selectedProjectId, snapshotProjectEdits(selectedProject), direction);
+    if (!result.snapshot) return;
+    setProjectEditHistories(result.histories);
+    localStorage.setItem(EDIT_HISTORY_STORAGE_KEY, JSON.stringify(result.histories));
+    const updated = projects.map((project) => project.id === selectedProjectId
+      ? { ...project, visualScenes: result.snapshot!.visualScenes, teachingPauses: result.snapshot!.teachingPauses }
+      : project);
+    setProjects(updated);
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(updated));
+  }, [projectEditHistories, projects, selectedProject, selectedProjectId]);
+
+  const undoCurrentProject = useCallback(() => travelCurrentProjectHistory("undo"), [travelCurrentProjectHistory]);
+  const redoCurrentProject = useCallback(() => travelCurrentProjectHistory("redo"), [travelCurrentProjectHistory]);
+
+  useEffect(() => {
+    if (view !== "editor" || !selectedProjectId) return;
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (!(event.ctrlKey || event.metaKey)) return;
+      const target = event.target;
+      if (target instanceof HTMLElement && (target.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(target.tagName))) return;
+      if (event.key.toLowerCase() === "z" && !event.shiftKey) {
+        event.preventDefault();
+        undoCurrentProject();
+      } else if (event.key.toLowerCase() === "y" || (event.key.toLowerCase() === "z" && event.shiftKey)) {
+        event.preventDefault();
+        redoCurrentProject();
+      }
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [redoCurrentProject, selectedProjectId, undoCurrentProject, view]);
 
   useEffect(() => {
     const audio = audioRef.current;
@@ -468,6 +560,8 @@ function App() {
       return;
     }
 
+    recordCurrentProjectEdit();
+
     const pause: TeachingPause = {
       id: createUuid(),
       time: Math.min(currentTime, audioDuration),
@@ -498,6 +592,8 @@ function App() {
     updates: Partial<Pick<TeachingPause, "label" | "duration">>
   ) {
     if (!selectedProjectId) return;
+    if (!teachingPauses.some((pause) => pause.id === pauseId)) return;
+    recordCurrentProjectEdit(`pause:${pauseId}:${Object.keys(updates).sort().join("+")}`);
 
     const updatedProjects = projects.map((project) => {
       if (project.id !== selectedProjectId) return project;
@@ -516,6 +612,8 @@ function App() {
 
   function deleteTeachingPause(pauseId: string) {
     if (!selectedProjectId) return;
+    if (!teachingPauses.some((pause) => pause.id === pauseId)) return;
+    recordCurrentProjectEdit();
     if (selectedPauseId === pauseId) {
       setSelectedPauseId(null);
     }
@@ -558,6 +656,8 @@ function App() {
       originalName: null,
     };
 
+    recordCurrentProjectEdit();
+
     const updatedProjects = projects.map((project) => {
       if (project.id !== selectedProjectId) return project;
 
@@ -595,6 +695,9 @@ function App() {
       setTimelineMessage("");
       normalizedUpdates = { ...updates, startTime, duration };
     }
+    if (Object.keys(normalizedUpdates).length) {
+      recordCurrentProjectEdit(`scene:${sceneId}:${Object.keys(normalizedUpdates).sort().join("+")}`);
+    }
 
     const updatedProjects = projects.map((project) => {
       if (project.id !== selectedProjectId) return project;
@@ -615,6 +718,8 @@ function App() {
 
   function deleteVisualScene(sceneId: string) {
     if (!selectedProjectId) return;
+    if (!visualScenes.some((scene) => scene.id === sceneId)) return;
+    recordCurrentProjectEdit();
 
     const updatedProjects = projects.map((project) => {
       if (project.id !== selectedProjectId) return project;
@@ -629,6 +734,12 @@ function App() {
 
     setProjects(updatedProjects);
     localStorage.setItem(STORAGE_KEY, JSON.stringify(updatedProjects));
+  }
+
+  function assignVisualAsset(sceneId: string, assetId: string) {
+    const asset = visualLibrary.find((item) => item.id === assetId);
+    if (!asset) return;
+    updateVisualScene(sceneId, { mediaType: asset.mediaType, mediaUrl: asset.url, originalName: asset.originalName });
   }
 
   function saveNarrationSegments(nextSegments: NarrationSegment[]) {
@@ -870,7 +981,7 @@ function App() {
       setMusicLibrary((previous) => [asset, ...previous.filter((item) => item.filename !== asset.filename)]);
       updateProjectMusic({ backgroundMusic: { filename: asset.filename, originalName: asset.originalName } });
       setMusicFile(null);
-      setMusicMessage(`Uploaded and selected ${asset.originalName}. Effects are applied during export.`);
+      setMusicMessage(`Uploaded and selected ${asset.originalName}. Live mix is monitored in preview and finalized with FFmpeg on export.`);
     } catch (error) {
       setMusicMessage(error instanceof Error ? error.message : "Background music upload failed.");
     } finally {
@@ -989,11 +1100,13 @@ function App() {
   const narrationAudioElement = selectedProject?.narration ? (
     <audio
       ref={audioRef}
+      crossOrigin="anonymous"
       controls
       preload="metadata"
-      onPause={(event) => { setCurrentTime(event.currentTarget.currentTime); setPreviewSyncRevision((revision) => revision + 1); }}
-      onPlay={(event) => { setCurrentTime(event.currentTarget.currentTime); setPreviewSyncRevision((revision) => revision + 1); }}
+      onPause={(event) => { liveMonitor.onNarrationPause(isTeachingPauseActiveRef.current); setCurrentTime(event.currentTarget.currentTime); setPreviewSyncRevision((revision) => revision + 1); }}
+      onPlay={(event) => { liveMonitor.onNarrationPlay(); liveMonitor.syncTo(event.currentTarget.currentTime); setCurrentTime(event.currentTarget.currentTime); setPreviewSyncRevision((revision) => revision + 1); }}
       onEnded={(event) => {
+        liveMonitor.onNarrationEnded();
         event.currentTarget.currentTime = 0;
         setCurrentTime(0);
         lastPreviewPositionRef.current = 0;
@@ -1007,6 +1120,7 @@ function App() {
       onSeeked={(event) => {
         const position = event.currentTarget.currentTime;
         lastPreviewPositionRef.current = position;
+        liveMonitor.syncTo(position);
         for (const pause of teachingPauses) if (position < pause.time - 0.4) completedPreviewPausesRef.current.delete(pause.id);
         setCurrentTime(position);
         if (selectedProjectId) localStorage.setItem(`${PLAYBACK_POSITION_PREFIX}${selectedProjectId}`, String(position));
@@ -1029,6 +1143,9 @@ function App() {
       src={apiUrl(selectedProject.narration.url)}
     >Your browser does not support narration playback.</audio>
   ) : <div className="workstation-preview-empty">Upload narration to preview this project.</div>;
+  const musicAudioElement = musicPreviewUrl
+    ? <audio ref={musicAudioRef} crossOrigin="anonymous" loop preload="auto" hidden aria-hidden="true" />
+    : null;
 
   return (
     <div className="app">
@@ -1192,7 +1309,11 @@ function App() {
             validation={exportValidation}
             musicSettings={selectedProject.backgroundMusicSettings ?? DEFAULT_BACKGROUND_MUSIC_SETTINGS}
             narrationFile={audioFile}
-            visualFile={visualLibraryFile}
+            visualFiles={visualLibraryFiles}
+            musicAudioElement={musicAudioElement}
+            monitorStatus={liveMonitor.status}
+            canUndo={(projectEditHistories[selectedProject.id]?.undo.length ?? 0) > 0}
+            canRedo={(projectEditHistories[selectedProject.id]?.redo.length ?? 0) > 0}
             musicFile={musicFile}
             uploadMessage={uploadMessage}
             mediaMessage={visualLibraryMessage}
@@ -1209,7 +1330,7 @@ function App() {
             rendering={rendering}
             onBack={() => setView("projects")}
             onNarrationFile={setAudioFile}
-            onVisualFile={setVisualLibraryFile}
+            onVisualFiles={setVisualLibraryFiles}
             onMusicFile={setMusicFile}
             onUploadNarration={uploadNarration}
             onUploadVisual={uploadVisualLibraryAsset}
@@ -1225,6 +1346,8 @@ function App() {
             onSeek={seekToTime}
             onSceneUpdate={updateVisualScene}
             onSceneDelete={deleteVisualScene}
+            onAssignAsset={assignVisualAsset}
+            onDropAsset={assignVisualAsset}
             onAddScene={addVisualScene}
             onPauseUpdate={updateTeachingPause}
             onPauseDelete={deleteTeachingPause}
@@ -1233,10 +1356,12 @@ function App() {
             onMusicSelect={(filename) => {
               const asset = musicLibrary.find((item) => item.filename === filename);
               updateProjectMusic({ backgroundMusic: asset ? { filename: asset.filename, originalName: asset.originalName } : undefined });
-              setMusicMessage(asset ? `${asset.originalName} selected for export.` : "Background music disabled; exports use narration only.");
+              setMusicMessage(asset ? `${asset.originalName} selected for live preview and export.` : "Background music disabled; exports use narration only.");
             }}
             onMusicSetting={updateMusicSetting}
             onGenerate={() => void generateVideo()}
+            onUndo={undoCurrentProject}
+            onRedo={redoCurrentProject}
             formatTime={formatDuration}
           />
         )}

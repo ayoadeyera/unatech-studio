@@ -218,6 +218,8 @@ a {
 .main-content:has(.workstation-shell) { min-width: 0; padding: 18px; overflow: hidden; }
 .workstation-shell { width: 100%; min-width: 0; color: #e8edf7; }
 .workstation-header { display: flex; align-items: center; justify-content: space-between; gap: 16px; margin: 0 0 14px; }
+.workstation-header-actions { display: flex; align-items: center; gap: 8px; }
+.workstation-header-actions button:disabled { opacity: .45; cursor: not-allowed; }
 .workstation-header h1 { margin: 0; font-size: 24px; letter-spacing: 0; color: #f7f8fc; }
 .workstation-header p { color: #93a0b5; font-size: 12px; }
 .workstation-back, .workstation-text-button { color: #aeb8ce; background: none; border: 0; padding: 0; cursor: pointer; }
@@ -246,11 +248,13 @@ a {
 .workstation-status { font-size: 11px; line-height: 1.45; color: #b5c5de; margin: 8px 0 0; overflow-wrap: anywhere; }
 .workstation-divider { height: 1px; background: #26364b; margin: 11px 0; }
 .workstation-asset-list { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 6px; max-height: 220px; overflow: auto; margin: 8px 0; }
-.workstation-asset { display: grid; grid-template-columns: 14px 42px minmax(0, 1fr); align-items: center; gap: 5px; background: #172337; border: 1px solid transparent; border-radius: 6px; padding: 4px; min-width: 0; cursor: pointer; }
+.workstation-asset { display: grid; grid-template-columns: 42px minmax(0, 1fr); grid-template-rows: auto 34px auto; align-items: center; gap: 5px; background: #172337; border: 1px solid transparent; border-radius: 6px; padding: 5px; min-width: 0; cursor: grab; }
 .workstation-asset.is-picked { border-color: #8b6cf0; background: #252448; }
 .workstation-asset input { margin: 0; }
+.workstation-asset-pick { grid-column: 1 / -1; color: #cbd5e3; font-size: 10px; }
 .workstation-asset img, .workstation-asset video { width: 42px; height: 34px; object-fit: cover; border-radius: 3px; background: #090e18; }
 .workstation-asset span { min-width: 0; color: #cbd5e3; font-size: 9px; line-height: 1.2; overflow: hidden; text-overflow: ellipsis; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; }
+.workstation-asset > button { grid-column: 1 / -1; justify-self: stretch; padding: 4px; font-size: 10px; }
 .workstation-segment-list { max-height: 250px; overflow: auto; display: grid; gap: 6px; margin: 8px 0; }
 .workstation-segment-card { padding: 7px; border-radius: 6px; background: #172337; font-size: 10px; }
 .workstation-inline-fields { display: flex; gap: 7px; margin: 8px 0; }
@@ -304,6 +308,7 @@ a {
 .timeline-lane-content { position: absolute; inset: 0; width: 100%; }
 .timeline-visual-clip { position: absolute; top: 13px; height: 25px; display: flex; align-items: center; justify-content: center; overflow: hidden; border: 1px solid #8467ee; border-radius: 4px; background: #40387a; color: #f2eeff; font-size: 9px; cursor: grab; touch-action: none; min-width: 4px; }
 .timeline-visual-clip.has-media { background: #514095; }.timeline-visual-clip.is-empty { background: #493b37; border-color: #a87958; }.timeline-visual-clip.is-selected { outline: 2px solid #d6caff; z-index: 2; }
+.timeline-visual-clip.is-drop-target { outline: 3px solid #77d9c0; z-index: 3; }
 .timeline-visual-clip > span { pointer-events: none; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; padding: 0 7px; }
 .timeline-trim-handle { position: absolute; top: 0; bottom: 0; width: 6px; padding: 0; border: 0; background: #c9bafa; opacity: .75; cursor: ew-resize; }.timeline-trim-handle.left { left: 0; }.timeline-trim-handle.right { right: 0; }
 .timeline-audio-clip, .timeline-music-clip { position: absolute; top: 15px; left: 0; right: 0; height: 20px; border-radius: 4px; background: repeating-linear-gradient(135deg,#234459,#234459 5px,#1c384a 5px,#1c384a 10px); color: #d2ebf3; padding: 4px 8px; font-size: 9px; overflow: hidden; white-space: nowrap; }

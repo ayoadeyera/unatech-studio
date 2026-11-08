@@ -9,7 +9,8 @@ interface Props {
   segments: NarrationSegment[];
   selectedAssets: string[];
   narrationFile: File | null;
-  visualFile: File | null;
+  visualFiles: File[];
+  selectedSceneId: string | null;
   uploadMessage: string;
   mediaMessage: string;
   segmentationMessage: string;
@@ -19,11 +20,12 @@ interface Props {
   segmenting: boolean;
   preparing: boolean;
   onNarrationFile: (file: File | null) => void;
-  onVisualFile: (file: File | null) => void;
+  onVisualFiles: (files: File[]) => void;
   onUploadNarration: () => void;
   onUploadVisual: () => void;
   onRefresh: () => void;
   onToggleAsset: (assetId: string) => void;
+  onAssignAsset: (sceneId: string, assetId: string) => void;
   onPrepare: () => void;
   onSuggestSegments: () => void;
   onUpdateSegment: (id: string, field: "startTime" | "endTime", value: number) => void;
@@ -34,11 +36,11 @@ interface Props {
 
 export function MediaLibraryPanel(props: Props) {
   const {
-    project, assets, segments, selectedAssets, narrationFile, visualFile,
+    project, assets, segments, selectedAssets, narrationFile, visualFiles, selectedSceneId,
     uploadMessage, mediaMessage, segmentationMessage, autoPrepareMessage,
     uploadingNarration, uploadingVisual, segmenting, preparing,
-    onNarrationFile, onVisualFile, onUploadNarration, onUploadVisual, onRefresh,
-    onToggleAsset, onPrepare, onSuggestSegments, onUpdateSegment, onSplitSegment,
+    onNarrationFile, onVisualFiles, onUploadNarration, onUploadVisual, onRefresh,
+    onToggleAsset, onAssignAsset, onPrepare, onSuggestSegments, onUpdateSegment, onSplitSegment,
     onMergeSegment, onAppendSlots,
   } = props;
 
@@ -78,16 +80,17 @@ export function MediaLibraryPanel(props: Props) {
         <header className="workstation-panel-heading"><h2>Visual library</h2><button type="button" className="workstation-text-button" onClick={onRefresh}>Refresh</button></header>
         <p className="workstation-muted">Select assets in order. Auto Prepare fills empty narration slots and preserves existing edits.</p>
         <label className="workstation-file-picker">Add image or video
-          <input type="file" accept=".jpg,.jpeg,.png,.webp,.mp4,image/jpeg,image/png,image/webp,video/mp4" onChange={(event: ChangeEvent<HTMLInputElement>) => onVisualFile(event.target.files?.[0] ?? null)} />
+          <input type="file" multiple accept=".jpg,.jpeg,.png,.webp,.mp4,image/jpeg,image/png,image/webp,video/mp4" onChange={(event: ChangeEvent<HTMLInputElement>) => onVisualFiles(Array.from(event.target.files ?? []))} />
         </label>
-        {visualFile && <button type="button" className="workstation-secondary" disabled={uploadingVisual} onClick={onUploadVisual}>{uploadingVisual ? "Uploading…" : `Upload ${visualFile.name}`}</button>}
+        {visualFiles.length > 0 && <button type="button" className="workstation-secondary" disabled={uploadingVisual} onClick={onUploadVisual}>{uploadingVisual ? "Uploading…" : `Upload ${visualFiles.length} selected file${visualFiles.length === 1 ? "" : "s"}`}</button>}
         {mediaMessage && <p className="workstation-status" role="status">{mediaMessage}</p>}
         <div className="workstation-asset-list" aria-label="Uploaded visual assets">
-          {assets.map((asset) => <label key={asset.id} className={`workstation-asset ${selectedAssets.includes(asset.id) ? "is-picked" : ""}`}>
-            <input type="checkbox" checked={selectedAssets.includes(asset.id)} onChange={() => onToggleAsset(asset.id)} />
-            {asset.mediaType === "image" ? <img src={apiUrl(asset.url)} alt="" loading="lazy" /> : <video src={apiUrl(asset.url)} muted preload="metadata" />}
+          {assets.map((asset) => <article key={asset.id} className={`workstation-asset ${selectedAssets.includes(asset.id) ? "is-picked" : ""}`} draggable onDragStart={(event) => { event.dataTransfer.setData("text/plain", asset.id); event.dataTransfer.effectAllowed = "copy"; }}>
+            <label className="workstation-asset-pick"><input type="checkbox" checked={selectedAssets.includes(asset.id)} onChange={() => onToggleAsset(asset.id)} /> Select</label>
+            {asset.mediaType === "image" ? <img src={apiUrl(asset.url)} alt={asset.originalName} loading="lazy" /> : <video src={apiUrl(asset.url)} muted preload="metadata" />}
             <span title={asset.originalName}>{asset.originalName}</span>
-          </label>)}
+            <button type="button" className="workstation-text-button" disabled={!selectedSceneId} onClick={() => selectedSceneId && onAssignAsset(selectedSceneId, asset.id)}>Assign to selected scene</button>
+          </article>)}
           {!assets.length && <p className="workstation-muted">No visual uploads yet.</p>}
         </div>
         <button type="button" className="workstation-primary workstation-auto-prepare" disabled={!project.narration || !assets.length || preparing} onClick={onPrepare}>{preparing ? "Preparing scenes…" : "Auto Prepare Scenes"}</button>

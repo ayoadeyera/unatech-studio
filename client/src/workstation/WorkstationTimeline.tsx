@@ -28,11 +28,12 @@ interface Props {
   onCommitTiming: (sceneId: string, startTime: number, duration: number) => void;
   onAddScene: () => void;
   onSelectPause: (pause: TeachingPause) => void;
+  onDropAsset: (sceneId: string, assetId: string) => void;
 }
 
 export function WorkstationTimeline({
   scenes, pauses, duration, currentTime, selectedSceneId, narrationName, musicName,
-  message, formatTime, onSelectScene, onSeek, onCommitTiming, onAddScene, onSelectPause,
+  message, formatTime, onSelectScene, onSeek, onCommitTiming, onAddScene, onSelectPause, onDropAsset,
 }: Props) {
   const [zoom, setZoom] = useState(1);
   const [drag, setDrag] = useState<DragState | null>(null);
@@ -148,6 +149,10 @@ export function WorkstationTimeline({
                     onClick={(event) => { event.stopPropagation(); onSelectScene(scene); }}
                     onKeyDown={(event) => { if (event.key === "Enter" || event.key === " ") onSelectScene(scene); }}
                     onPointerDown={(event) => startDrag(event, scene, "move")}
+                    onDragOver={(event) => { if (event.dataTransfer.types.includes("text/plain")) { event.preventDefault(); event.dataTransfer.dropEffect = "copy"; } }}
+                    onDragEnter={(event) => { if (event.dataTransfer.types.includes("text/plain")) { event.preventDefault(); event.currentTarget.classList.add("is-drop-target"); } }}
+                    onDragLeave={(event) => event.currentTarget.classList.remove("is-drop-target")}
+                    onDrop={(event) => { event.preventDefault(); event.currentTarget.classList.remove("is-drop-target"); const assetId = event.dataTransfer.getData("text/plain"); if (assetId) onDropAsset(scene.id, assetId); }}
                   >
                     <button type="button" className="timeline-trim-handle left" aria-label={`Trim start of ${scene.title}`} onPointerDown={(event) => startDrag(event, scene, "trim-start")} onClick={(event) => event.stopPropagation()} />
                     <span>{scene.title}</span>

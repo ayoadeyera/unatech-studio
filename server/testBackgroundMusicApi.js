@@ -54,6 +54,12 @@ async function main() {
     assert.match(uploaded.music.filename, /^[0-9a-f-]+-Calm-Theme\.wav$/i);
     const scopedLibrary = await fetch(`${baseUrl}/api/projects/${projectId}/background-music`).then((response) => response.json());
     assert.equal(scopedLibrary.music.length, 1, "uploaded track is listed for the owning project");
+    const preview = await fetch(`${baseUrl}/api/projects/${projectId}/background-music/${encodeURIComponent(uploaded.music.filename)}`);
+    assert.equal(preview.status, 200, "selected track is available for same-origin preview");
+    assert.match(preview.headers.get("content-type") || "", /audio\//i);
+    assert.equal((await preview.arrayBuffer()).byteLength, uploaded.music.size, "preview serves the original uploaded bytes");
+    const traversal = await fetch(`${baseUrl}/api/projects/${projectId}/background-music/%2e%2e%2fpackage.json`);
+    assert.ok([400, 404].includes(traversal.status), "rejects invalid music paths");
     const otherLibrary = await fetch(`${baseUrl}/api/projects/${otherProjectId}/background-music`).then((response) => response.json());
     assert.deepEqual(otherLibrary.music, [], "other projects cannot see uploaded tracks");
 

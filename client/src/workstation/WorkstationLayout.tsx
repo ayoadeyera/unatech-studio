@@ -8,9 +8,13 @@ interface Props {
   preview: ReactNode;
   inspector: ReactNode;
   timeline: ReactNode;
+  canUndo: boolean;
+  canRedo: boolean;
+  onUndo: () => void;
+  onRedo: () => void;
 }
 
-export function WorkstationLayout({ title, savedLabel, onBack, mediaLibrary, preview, inspector, timeline }: Props) {
+export function WorkstationLayout({ title, savedLabel, onBack, mediaLibrary, preview, inspector, timeline, canUndo, canRedo, onUndo, onRedo }: Props) {
   return (
     <section className="workstation-shell" aria-label="Video workstation">
       <header className="workstation-header">
@@ -19,7 +23,11 @@ export function WorkstationLayout({ title, savedLabel, onBack, mediaLibrary, pre
           <h1>{title}</h1>
           <p>Narration-driven video workspace</p>
         </div>
-        <span className="workstation-save-state" role="status">{savedLabel}</span>
+        <div className="workstation-header-actions">
+          <span className="workstation-save-state" role="status">{savedLabel}</span>
+          <button type="button" className="workstation-secondary" aria-label="Undo" title="Undo (Ctrl+Z)" onClick={onUndo} disabled={!canUndo}>Undo</button>
+          <button type="button" className="workstation-secondary" aria-label="Redo" title="Redo (Ctrl+Y or Ctrl+Shift+Z)" onClick={onRedo} disabled={!canRedo}>Redo</button>
+        </div>
       </header>
       <div className="workstation-grid">
         <aside className="workstation-library" aria-label="Project media library">{mediaLibrary}</aside>
