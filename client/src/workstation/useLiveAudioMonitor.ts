@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState, type RefObject } from "react";
 import type { BackgroundMusicSettings } from "../backgroundMusic";
-import { liveMusicGain } from "./liveAudioMonitor";
+import { liveMusicGain, musicSyncTime, playMusicBeforeResumingContext, rampMusicGain, shouldPauseMusicForNarrationPause } from "./liveAudioMonitor";
 
 interface Options {
   narrationRef: RefObject<HTMLAudioElement | null>;
@@ -39,10 +39,10 @@ export function useLiveAudioMonitor({ narrationRef, musicRef, musicUrl, settings
     else param.setValueAtTime(value, now);
   }, []);
 
-  const initialize = useCallback(async () => {
+  const prepareAudioGraph = useCallback(() => {
     const narration = narrationRef.current;
     const music = musicRef.current;
-    if (!narration) return;
+    if (!narration) return null;
     try {
       const AudioContextConstructor = window.AudioContext;
       if (!AudioContextConstructor) throw new Error("Web Audio API is unavailable.");
@@ -52,21 +52,21 @@ export function useLiveAudioMonitor({ narrationRef, musicRef, musicUrl, settings
       setGain(narrationNodes.gain, 1, settings.transitionDuration);
       if (musicUrl && music) {
         const musicNodes = ensureNodes(music, context);
-        setGain(musicNodes.gain, music.currentTime < 0.05 ? 0 : liveMusicGain(settings, teachingPause), settings.transitionDuration);
+        setGain(musicNodes.gain, liveMusicGain(settings, teachingPause), settings.transitionDuration);
       }
-      await context.resume();
-      setStatus(musicUrl ? "Live music mix active; export uses the FFmpeg mix." : "Live narration monitor active.");
+      return context;
     } catch {
       if (musicUrl && music) music.volume = liveMusicGain(settings, teachingPause);
-      setStatus(musicUrl ? "Basic browser music monitoring active; FFmpeg export provides final fade and mix processing." : "Narration playback active.");
+      return null;
     }
   }, [ensureNodes, musicRef, musicUrl, narrationRef, setGain, settings, teachingPause]);
 
   const syncTo = useCallback((time: number) => {
     const music = musicRef.current;
-    if (!music || !musicUrl || !Number.isFinite(time) || teachingPause) return;
-    if (Math.abs(music.currentTime - time) > 0.18) {
-      try { music.currentTime = Math.max(0, time); } catch { /* Metadata may still be loading. */ }
+    const targetTime = musicSyncTime(time, teachingPause);
+    if (!music || !musicUrl || targetTime === null) return;
+    if (Math.abs(music.currentTime - targetTime) > 0.18) {
+      try { music.currentTime = targetTime; } catch { /* Metadata may still be loading. */ }
     }
   }, [musicRef, musicUrl, teachingPause]);
 
@@ -75,28 +75,43 @@ export function useLiveAudioMonitor({ narrationRef, musicRef, musicUrl, settings
       window.clearTimeout(pauseTimeoutRef.current);
       pauseTimeoutRef.current = null;
     }
-    void initialize().then(() => {
-      const music = musicRef.current;
-      const narration = narrationRef.current;
-      if (!musicUrl || !music || !narration) return;
+    const music = musicRef.current;
+    const narration = narrationRef.current;
+    if (!narration) return;
+
+    const context = prepareAudioGraph();
+    if (musicUrl && music) {
       syncTo(narration.currentTime);
-      if (music.paused) {
-        const gain = nodesRef.current.get(music)?.gain;
-        const context = contextRef.current;
-        if (gain && context && music.currentTime < 0.05 && settings.fadeInDuration > 0) {
-          const now = context.currentTime;
-          gain.gain.cancelScheduledValues(now);
-          gain.gain.setValueAtTime(0, now);
-          gain.gain.linearRampToValueAtTime(liveMusicGain(settings, teachingPause), now + settings.fadeInDuration);
-        }
-        void music.play().catch(() => setStatus("Press play again to enable live music monitoring."));
+      const gain = context ? nodesRef.current.get(music)?.gain : undefined;
+      if (gain && context) {
+        rampMusicGain(gain.gain, context.currentTime, liveMusicGain(settings, teachingPause), settings.fadeInDuration);
+      } else {
+        music.volume = liveMusicGain(settings, teachingPause);
       }
-    });
-  }, [initialize, musicRef, musicUrl, narrationRef, settings, syncTo, teachingPause]);
+
+      // play() must be called in this event handler before context.resume() is awaited.
+      void playMusicBeforeResumingContext(music, () =>
+        context?.state === "suspended" ? context.resume() : Promise.resolve(),
+      ).then(() => {
+        setStatus("Live music mix active; export uses the FFmpeg mix.");
+      }).catch(() => {
+        setStatus("Live music was blocked by the browser. Click Play again to allow audio playback.");
+      });
+      return;
+    }
+
+    if (context?.state === "suspended") {
+      void context.resume().then(() => setStatus("Live narration monitor active.")).catch(() => {
+        setStatus("Browser audio is suspended. Click Play again to enable narration monitoring.");
+      });
+    } else {
+      setStatus("Live narration monitor active.");
+    }
+  }, [musicRef, musicUrl, narrationRef, prepareAudioGraph, settings, syncTo, teachingPause]);
 
   const onNarrationPause = useCallback((pauseLock = teachingPause) => {
     const music = musicRef.current;
-    if (!pauseLock && music && !music.paused) music.pause();
+    if (shouldPauseMusicForNarrationPause(pauseLock) && music && !music.paused) music.pause();
   }, [musicRef, teachingPause]);
 
   const onNarrationEnded = useCallback(() => {

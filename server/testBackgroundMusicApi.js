@@ -12,6 +12,7 @@ async function main() {
   const otherProjectId = crypto.randomUUID();
   const projectDirectory = path.join(__dirname, "uploads", "background-music", projectId);
   const fixturePath = path.join(__dirname, `.background-music-api-${projectId}.wav`);
+  const previewPath = path.join(__dirname, `.background-music-api-preview-${projectId}.wav`);
   const child = spawn(process.execPath, ["index.js"], {
     cwd: __dirname,
     env: { ...process.env, PORT: String(port) },
@@ -57,7 +58,15 @@ async function main() {
     const preview = await fetch(`${baseUrl}/api/projects/${projectId}/background-music/${encodeURIComponent(uploaded.music.filename)}`);
     assert.equal(preview.status, 200, "selected track is available for same-origin preview");
     assert.match(preview.headers.get("content-type") || "", /audio\//i);
-    assert.equal((await preview.arrayBuffer()).byteLength, uploaded.music.size, "preview serves the original uploaded bytes");
+    const previewBytes = Buffer.from(await preview.arrayBuffer());
+    assert.equal(previewBytes.byteLength, uploaded.music.size, "preview serves the original uploaded bytes");
+    await fs.writeFile(previewPath, previewBytes);
+    const decoded = await execFileAsync("ffprobe", [
+      "-v", "error", "-select_streams", "a:0", "-show_entries", "stream=codec_name,duration",
+      "-of", "default=noprint_wrappers=1", previewPath,
+    ], { windowsHide: true, timeout: 300000 });
+    assert.match(decoded.stdout, /codec_name=pcm_s16le/, "preview endpoint response remains decodable audio");
+    assert.match(decoded.stdout, /duration=0\.25/, "preview endpoint preserves the uploaded audio duration");
     const traversal = await fetch(`${baseUrl}/api/projects/${projectId}/background-music/%2e%2e%2fpackage.json`);
     assert.ok([400, 404].includes(traversal.status), "rejects invalid music paths");
     const otherLibrary = await fetch(`${baseUrl}/api/projects/${otherProjectId}/background-music`).then((response) => response.json());
@@ -69,6 +78,7 @@ async function main() {
     await new Promise((resolve) => child.once("exit", resolve));
     await fs.rm(projectDirectory, { recursive: true, force: true });
     await fs.rm(fixturePath, { force: true });
+    await fs.rm(previewPath, { force: true });
   }
 }
 
