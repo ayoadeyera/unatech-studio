@@ -232,6 +232,10 @@ a {
 .workstation-timeline-dock { grid-column: 1 / -1; grid-row: 2; min-width: 0; }
 .workstation-panel-stack { display: flex; flex-direction: column; gap: 10px; min-width: 0; }
 .workstation-panel, .workstation-preview-panel, .workstation-timeline { background: #111a2b; border: 1px solid #26354a; border-radius: 10px; padding: 12px; }
+.workstation-auto-build-panel { border-color: #5b4aa3; background: linear-gradient(145deg, #171b34, #111a2b 65%); }
+.workstation-auto-build-panel .workstation-panel-heading h2 { font-size: 16px; }
+.workstation-segmentation-details { margin-top: 10px; }
+.workstation-segmentation-details summary { color: #c6d0e1; cursor: pointer; font-size: 11px; }
 .workstation-panel h2, .workstation-preview-panel h2, .workstation-timeline h2 { margin: 0; font-size: 14px; color: #f1f5fb; }
 .workstation-panel h3 { margin: 12px 0 6px; font-size: 12px; }
 .workstation-panel-heading { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 8px; }

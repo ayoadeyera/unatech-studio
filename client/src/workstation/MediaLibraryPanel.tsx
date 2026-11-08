@@ -46,6 +46,26 @@ export function MediaLibraryPanel(props: Props) {
 
   return (
     <div className="workstation-panel-stack">
+      <section className="workstation-panel workstation-auto-build-panel">
+        <header className="workstation-panel-heading">
+          <h2>Auto Build Video</h2>
+          <span>{project.narration ? `${assets.length} visual${assets.length === 1 ? "" : "s"} ready` : "Needs narration"}</span>
+        </header>
+        <p className="workstation-muted">Detect activity from silence, create timed scene slots, and assign project visuals in order. It does not transcribe speech or match images to meaning.</p>
+        <button
+          type="button"
+          className="workstation-primary workstation-auto-prepare"
+          disabled={!project.narration || uploadingNarration || uploadingVisual || segmenting || preparing || mediaMessage === "Loading project media…"}
+          onClick={onPrepare}
+        >{preparing ? "Detecting and arranging…" : "Auto Build Video"}</button>
+        <p className="workstation-status" role="status" aria-live="polite">
+          {autoPrepareMessage || (!project.narration
+            ? "Upload an MP3 or WAV narration to enable automatic preparation."
+            : assets.length === 0
+              ? "No visuals uploaded yet. Auto Build can create timed empty slots; upload images or clips to fill them."
+              : `${assets.length} project visual${assets.length === 1 ? "" : "s"} available. With no selection, all are assigned chronologically.`)}
+        </p>
+      </section>
       <section className="workstation-panel">
         <header className="workstation-panel-heading"><h2>Narration</h2><span>{project.narration ? "Ready" : "Required"}</span></header>
         {project.narration ? <p className="workstation-file-name" title={project.narration.originalName}>{project.narration.originalName}</p> : <p className="workstation-muted">Upload a narration track to build visual timing.</p>}
@@ -55,30 +75,32 @@ export function MediaLibraryPanel(props: Props) {
         {narrationFile && <button type="button" className="workstation-secondary" disabled={uploadingNarration} onClick={onUploadNarration}>{uploadingNarration ? "Uploading…" : `Upload ${narrationFile.name}`}</button>}
         {uploadMessage && <p className="workstation-status" role="status">{uploadMessage}</p>}
         <div className="workstation-divider" />
-        <div className="workstation-panel-heading"><h3>Segmentation</h3><span>Optional</span></div>
-        <p className="workstation-muted">FFmpeg suggests activity ranges from silence. It does not transcribe speech or infer meaning.</p>
-        <button type="button" className="workstation-secondary" disabled={!project.narration || segmenting} onClick={onSuggestSegments}>{segmenting ? "Detecting silence…" : segments.length ? "Refresh suggestions" : "Suggest segments"}</button>
-        {segmentationMessage && <p className="workstation-status" role="status">{segmentationMessage}</p>}
-        {segments.length > 0 && <>
-          <div className="workstation-segment-list">
-            {segments.map((segment, index) => <article key={segment.id} className="workstation-segment-card">
-              <strong>Segment {index + 1} · {segment.duration.toFixed(2)}s</strong>
-              <div className="workstation-inline-fields">
-                <label>Start<input type="number" min="0" step="0.01" value={segment.startTime} onChange={(event) => onUpdateSegment(segment.id, "startTime", Number(event.target.value))} /></label>
-                <label>End<input type="number" min="0" step="0.01" value={segment.endTime} onChange={(event) => onUpdateSegment(segment.id, "endTime", Number(event.target.value))} /></label>
-              </div>
-              <div className="workstation-small-actions">
-                <button type="button" disabled={segment.duration < 0.24} onClick={() => onSplitSegment(segment.id)}>Split</button>
-                {index < segments.length - 1 && <button type="button" onClick={() => onMergeSegment(index)}>Merge next</button>}
-              </div>
-            </article>)}
-          </div>
-          <button type="button" className="workstation-secondary" onClick={onAppendSlots}>Append empty scene slots</button>
-        </>}
+        <details className="workstation-segmentation-details">
+          <summary>Review timing suggestions{segments.length ? ` · ${segments.length} segments` : " · optional"}</summary>
+          <p className="workstation-muted">FFmpeg detects silence and activity ranges only. It does not transcribe speech or infer meaning.</p>
+          <button type="button" className="workstation-secondary" disabled={!project.narration || segmenting || preparing} onClick={onSuggestSegments}>{segmenting ? "Detecting silence…" : segments.length ? "Refresh suggestions" : "Suggest segments"}</button>
+          {segmentationMessage && <p className="workstation-status" role="status">{segmentationMessage}</p>}
+          {segments.length > 0 && <>
+            <div className="workstation-segment-list">
+              {segments.map((segment, index) => <article key={segment.id} className="workstation-segment-card">
+                <strong>Segment {index + 1} · {segment.duration.toFixed(2)}s</strong>
+                <div className="workstation-inline-fields">
+                  <label>Start<input type="number" min="0" step="0.01" value={segment.startTime} onChange={(event) => onUpdateSegment(segment.id, "startTime", Number(event.target.value))} /></label>
+                  <label>End<input type="number" min="0" step="0.01" value={segment.endTime} onChange={(event) => onUpdateSegment(segment.id, "endTime", Number(event.target.value))} /></label>
+                </div>
+                <div className="workstation-small-actions">
+                  <button type="button" disabled={segment.duration < 0.24} onClick={() => onSplitSegment(segment.id)}>Split</button>
+                  {index < segments.length - 1 && <button type="button" onClick={() => onMergeSegment(index)}>Merge next</button>}
+                </div>
+              </article>)}
+            </div>
+            <button type="button" className="workstation-secondary" onClick={onAppendSlots}>Append empty scene slots</button>
+          </>}
+        </details>
       </section>
       <section className="workstation-panel">
         <header className="workstation-panel-heading"><h2>Visual library</h2><button type="button" className="workstation-text-button" onClick={onRefresh}>Refresh</button></header>
-        <p className="workstation-muted">Select assets in order. Auto Prepare fills empty narration slots and preserves existing edits.</p>
+        <p className="workstation-muted">Choose files together. Select a subset to set its order; otherwise Auto Build uses every project upload in library order. Existing edits and populated scenes are preserved.</p>
         <label className="workstation-file-picker">Add image or video
           <input type="file" multiple accept=".jpg,.jpeg,.png,.webp,.mp4,image/jpeg,image/png,image/webp,video/mp4" onChange={(event: ChangeEvent<HTMLInputElement>) => onVisualFiles(Array.from(event.target.files ?? []))} />
         </label>
@@ -93,8 +115,6 @@ export function MediaLibraryPanel(props: Props) {
           </article>)}
           {!assets.length && <p className="workstation-muted">No visual uploads yet.</p>}
         </div>
-        <button type="button" className="workstation-primary workstation-auto-prepare" disabled={!project.narration || !assets.length || preparing} onClick={onPrepare}>{preparing ? "Preparing scenes…" : "Auto Prepare Scenes"}</button>
-        {autoPrepareMessage && <p className="workstation-status" role="status">{autoPrepareMessage}</p>}
         <p className="workstation-muted">Short video clips loop to fill assigned durations. Existing populated scenes and manual edits are kept.</p>
       </section>
     </div>

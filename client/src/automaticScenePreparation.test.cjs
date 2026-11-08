@@ -1,7 +1,7 @@
 const assert = require("node:assert/strict");
 
 async function main() {
-  const { prepareScenesAutomatically } = await import("./automaticScenePreparation.ts");
+  const { prepareScenesAutomatically, resolveAutomaticAssetSelection } = await import("./automaticScenePreparation.ts");
   const segments = [
     { id: "seg-a", startTime: 0, endTime: 2, duration: 2 },
     { id: "seg-b", startTime: 3, endTime: 5, duration: 2 },
@@ -12,6 +12,8 @@ async function main() {
     { id: "vid-b", filename: "b.mp4", originalName: "b.mp4", url: "/b.mp4", size: 20, mediaType: "video" },
     { id: "img-c", filename: "c.png", originalName: "c.png", url: "/c.png", size: 30, mediaType: "image" },
   ];
+  assert.deepEqual(resolveAutomaticAssetSelection([], assets), ["img-a", "vid-b", "img-c"], "a one-click build uses all project uploads in library order by default");
+  assert.deepEqual(resolveAutomaticAssetSelection(["img-c", "img-a"], assets), ["img-c", "img-a"], "an explicit selection keeps the user's chosen order");
   let sceneId = 0;
   const idFactory = (segmentId) => `new-${segmentId}-${++sceneId}`;
   const manual = { id: "manual", title: "Edited manually", startTime: 8.5, duration: 1, mediaType: "image", mediaUrl: "/manual.png", originalName: "manual.png", customEditorNote: "keep" };

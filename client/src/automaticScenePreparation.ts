@@ -17,6 +17,14 @@ export interface AutomaticScenePreparationResult<Scene extends AlignmentVisualSc
   changed: boolean;
 }
 
+/** Use an explicit ordered selection, or all project uploads in library order. */
+export function resolveAutomaticAssetSelection(
+  selectedAssetIds: string[],
+  assets: AlignmentMediaAsset[],
+): string[] {
+  return selectedAssetIds.length ? [...selectedAssetIds] : assets.map((asset) => asset.id);
+}
+
 /** Creates only missing narration slots, then assigns selected assets in order. */
 export function prepareScenesAutomatically<Scene extends AlignmentVisualScene>(
   segments: AlignmentNarrationSegment[],

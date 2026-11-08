@@ -1,7 +1,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { appendNonOverlappingSegmentScenes, segmentCanBePlaced } from "./narrationSceneWorkflow";
-import { prepareScenesAutomatically } from "./automaticScenePreparation";
+import { prepareScenesAutomatically, resolveAutomaticAssetSelection } from "./automaticScenePreparation";
 import type { AlignmentMediaAsset } from "./visualAlignment";
 import { DEFAULT_BACKGROUND_MUSIC_SETTINGS, type BackgroundMusicSettings } from "./backgroundMusic";
 import { validateGuidedExport } from "./guidedProduction";
@@ -886,11 +886,12 @@ function App() {
 
       const result = prepareScenesAutomatically(
         segments,
-        selectedAlignmentAssets,
+        resolveAutomaticAssetSelection(selectedAlignmentAssets, visualLibrary),
         visualLibrary,
         selectedProject.visualScenes ?? [],
         (segmentId) => `scene-${segmentId}-${createUuid()}`,
       );
+      setAlignmentMessage("Applying chronological assignments and preserving existing scenes…");
       if (!result.changed && segments === (selectedProject.narrationSegments ?? [])) {
         setAlignmentMessage(
           `${result.createdCount} scene slots created · ${result.assignedCount} assets assigned · ${result.preservedCount} existing scenes preserved · ${result.skippedCount} assignments skipped. ${result.skippedCount > 0 ? "Existing media, timing and edits were kept; review segment timing or refresh/select available uploads." : "No changes were needed."}`,
@@ -903,7 +904,7 @@ function App() {
       setProjects(updatedProjects);
       localStorage.setItem(STORAGE_KEY, JSON.stringify(updatedProjects));
       const warnings = [
-        selectedAlignmentAssets.length === 0 ? "No assets selected; empty scene slots may remain." : "",
+        visualLibrary.length === 0 ? "No visuals are uploaded; the new slots are empty until you add media." : "",
         result.skippedCount > 0 ? "Some assignments were skipped because media was unavailable, timing conflicted, or scenes were already populated." : "",
       ].filter(Boolean).join(" ");
       setAlignmentMessage(
