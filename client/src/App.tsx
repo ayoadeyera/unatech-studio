@@ -9,6 +9,7 @@ import {
 } from "./visualAlignment";
 import { DEFAULT_BACKGROUND_MUSIC_SETTINGS, type BackgroundMusicSettings } from "./backgroundMusic";
 import { getGuidedStepState, getGuidedStepStatusLabel, updateProjectGuidedStep, validateGuidedExport, type GuidedStepId } from "./guidedProduction";
+import { apiRequest, apiUrl } from "./api";
 import "./App.css";
 
 type Preset = "Focused Teaching" | "Entertaining Presenter" | "High-Energy Explainer";
@@ -214,12 +215,9 @@ function App() {
     }
     let active = true;
     setVisualLibraryMessage("Loading project media…");
-    fetch(`${import.meta.env.VITE_API_URL}/api/projects/${selectedProjectId}/visuals`)
-      .then(async (response) => {
-        const data = await response.json();
-        if (!response.ok || !data.success || !Array.isArray(data.media)) {
-          throw new Error(data.message || "Could not load project media.");
-        }
+    apiRequest<{ success: boolean; media: AlignmentMediaAsset[] }>(`/api/projects/${selectedProjectId}/visuals`)
+      .then((data) => {
+        if (!data.success || !Array.isArray(data.media)) throw new Error("The project media response was incomplete.");
         if (!active) return;
         setVisualLibrary(data.media);
         setVisualLibraryMessage(data.media.length ? "" : "No visual uploads in this project yet.");
@@ -237,12 +235,9 @@ function App() {
       return;
     }
     let active = true;
-    fetch(`${import.meta.env.VITE_API_URL}/api/projects/${selectedProjectId}/background-music`)
-      .then(async (response) => {
-        const data = await response.json();
-        if (!response.ok || !data.success || !Array.isArray(data.music)) {
-          throw new Error(data.message || "Could not load background music.");
-        }
+    apiRequest<{ success: boolean; music: BackgroundMusicAsset[] }>(`/api/projects/${selectedProjectId}/background-music`)
+      .then((data) => {
+        if (!data.success || !Array.isArray(data.music)) throw new Error("The background music response was incomplete.");
         if (active) setMusicLibrary(data.music);
       })
       .catch((error: unknown) => {
@@ -253,9 +248,8 @@ function App() {
 
   const refreshVisualLibrary = useCallback(async (projectId: string) => {
     try {
-      const response = await fetch(`${import.meta.env.VITE_API_URL}/api/projects/${projectId}/visuals`);
-      const data = await response.json();
-      if (!response.ok || !data.success || !Array.isArray(data.media)) throw new Error("Could not refresh project media.");
+      const data = await apiRequest<{ success: boolean; media: AlignmentMediaAsset[] }>(`/api/projects/${projectId}/visuals`);
+      if (!data.success || !Array.isArray(data.media)) throw new Error("The project media response was incomplete.");
       setVisualLibrary(data.media);
       setVisualLibraryMessage(data.media.length ? "" : "No visual uploads in this project yet.");
     } catch (error) {
@@ -345,18 +339,14 @@ function App() {
   }, [selectedProjectId]);
 
   useEffect(() => {
-    fetch(`${import.meta.env.VITE_API_URL}/api/health`)
-      .then((response) => {
-        if (!response.ok) throw new Error("API unavailable");
-        return response.json();
-      })
+    apiRequest<{ success: boolean; message: string }>("/api/health")
       .then((data) => {
         setConnected(data.success === true);
         setApiStatus(data.message);
       })
-      .catch(() => {
+      .catch((error: unknown) => {
         setConnected(false);
-        setApiStatus("Backend connection failed");
+        setApiStatus(error instanceof Error ? error.message : "Backend connection failed.");
       });
   }, []);
 
@@ -739,14 +729,13 @@ function App() {
     setSegmenting(true);
     setSegmentationMessage("Detecting silence boundaries with FFmpeg...");
     try {
-      const response = await fetch(`${import.meta.env.VITE_API_URL}/api/projects/${selectedProjectId}/narration/segments`, {
+      const data = await apiRequest<{ success: boolean; segments: Array<Omit<NarrationSegment, "id">>; message?: string }>(`/api/projects/${selectedProjectId}/narration/segments`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ audioFilename: selectedProject.narration.filename }),
       });
-      const data = await response.json();
-      if (!response.ok || !data.success || !Array.isArray(data.segments)) {
-        throw new Error(data.message || "Could not detect narration segments.");
+      if (!data.success || !Array.isArray(data.segments)) {
+        throw new Error(data.message || "The narration segmentation response was incomplete.");
       }
       const segments: NarrationSegment[] = data.segments.map((segment: Omit<NarrationSegment, "id">) => ({
         ...segment,
@@ -916,17 +905,12 @@ function App() {
       const formData = new FormData();
       formData.append("visual", file);
 
-      const response = await fetch(
-        `${import.meta.env.VITE_API_URL}/api/projects/${projectId}/visuals`,
-        {
-          method: "POST",
-          body: formData,
-        }
+      const data = await apiRequest<{ success: boolean; message?: string; media?: { url?: string; originalName?: string; mediaType?: VisualMediaType } }>(
+        `/api/projects/${projectId}/visuals`,
+        { method: "POST", body: formData },
       );
 
-      const data = await response.json();
-
-      if (!response.ok || !data.success || !data.media?.url) {
+      if (!data.success || !data.media?.url) {
         throw new Error(data.message || "Visual upload failed.");
       }
 
@@ -1006,12 +990,11 @@ function App() {
     try {
       const formData = new FormData();
       formData.append("music", musicFile);
-      const response = await fetch(
-        `${import.meta.env.VITE_API_URL}/api/projects/${selectedProjectId}/background-music`,
+      const data = await apiRequest<{ success: boolean; message?: string; music?: BackgroundMusicAsset }>(
+        `/api/projects/${selectedProjectId}/background-music`,
         { method: "POST", body: formData },
       );
-      const data = await response.json();
-      if (!response.ok || !data.success || !data.music) {
+      if (!data.success || !data.music) {
         throw new Error(data.message || "Background music upload failed.");
       }
       const asset: BackgroundMusicAsset = data.music;
@@ -1048,17 +1031,12 @@ function App() {
       const formData = new FormData();
       formData.append("audio", audioFile);
 
-      const response = await fetch(
-        `${import.meta.env.VITE_API_URL}/api/projects/${selectedProjectId}/narration`,
-        {
-          method: "POST",
-          body: formData,
-        }
+      const data = await apiRequest<{ success: boolean; message?: string; narration?: NonNullable<Project["narration"]> }>(
+        `/api/projects/${selectedProjectId}/narration`,
+        { method: "POST", body: formData },
       );
 
-      const data = await response.json();
-
-      if (!response.ok || !data.success) {
+      if (!data.success || !data.narration) {
         throw new Error(data.message || "Upload failed.");
       }
 
@@ -1101,8 +1079,8 @@ function App() {
     setRenderedVideoUrl(null);
 
     try {
-      const response = await fetch(
-        `${import.meta.env.VITE_API_URL}/api/projects/${selectedProject.id}/render-mixed`,
+      const data = await apiRequest<{ success: boolean; message?: string; video?: { url?: string } }>(
+        `/api/projects/${selectedProject.id}/render-mixed`,
         {
           method: "POST",
           headers: {
@@ -1118,18 +1096,14 @@ function App() {
               ? (selectedProject.backgroundMusicSettings ?? DEFAULT_BACKGROUND_MUSIC_SETTINGS)
               : undefined,
           }),
-        }
+        },
       );
 
-      const data = await response.json();
-
-      if (!response.ok || !data.success || !data.video?.url) {
+      if (!data.success || !data.video?.url) {
         throw new Error(data.message || "Video rendering failed.");
       }
 
-      setRenderedVideoUrl(
-        `${import.meta.env.VITE_API_URL}${data.video.url}`
-      );
+      setRenderedVideoUrl(apiUrl(data.video.url));
 
       setRenderMessage("Video generated successfully!");
     } catch (error) {
@@ -1563,10 +1537,9 @@ function App() {
                         setNarrationDurationStatus("unavailable");
                       }}
                       style={{ width: "100%", marginTop: "12px" }}
-                      src={`${import.meta.env.VITE_API_URL}${projects.find(
+                      src={apiUrl(projects.find(
                         (project) => project.id === selectedProjectId
-                      )?.narration?.url
-                        }`}
+                      )?.narration?.url ?? "")}
                     >
                       Your browser does not support audio playback.
                     </audio>
@@ -1873,9 +1846,9 @@ function App() {
                     {visualLibrary.map((asset) => (
                       <li key={asset.id} className="alignment-media-card">
                         {asset.mediaType === "image" ? (
-                          <img src={`${import.meta.env.VITE_API_URL}${asset.url}`} alt="" />
+                          <img src={apiUrl(asset.url)} alt="" />
                         ) : (
-                          <video src={`${import.meta.env.VITE_API_URL}${asset.url}`} muted playsInline preload="metadata" />
+                          <video src={apiUrl(asset.url)} muted playsInline preload="metadata" />
                         )}
                         <label>
                           <input
@@ -1958,14 +1931,14 @@ function App() {
                     activeVisualScene.mediaType === "image" ? (
                       <img
                         key={activeVisualScene.id}
-                        src={`${import.meta.env.VITE_API_URL}${activeVisualScene.mediaUrl}`}
+                        src={apiUrl(activeVisualScene.mediaUrl)}
                         alt={activeVisualScene.title || "Active scene"}
                       />
                     ) : (
                       <video
                         key={activeVisualScene.id}
                         ref={visualVideoRef}
-                        src={`${import.meta.env.VITE_API_URL}${activeVisualScene.mediaUrl}`}
+                        src={apiUrl(activeVisualScene.mediaUrl)}
                         muted
                         playsInline
                         preload="auto"
@@ -2177,13 +2150,13 @@ function App() {
 
                             {scene.mediaType === "image" ? (
                               <img
-                                src={`${import.meta.env.VITE_API_URL}${scene.mediaUrl}`}
+                                src={apiUrl(scene.mediaUrl)}
                                 alt={scene.title || "Visual scene image"}
                                 loading="lazy"
                               />
                             ) : (
                               <video
-                                src={`${import.meta.env.VITE_API_URL}${scene.mediaUrl}`}
+                                src={apiUrl(scene.mediaUrl)}
                                 controls
                                 preload="metadata"
                                 playsInline
