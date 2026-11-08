@@ -147,7 +147,7 @@ export function WorkstationTimeline({
                     tabIndex={0}
                     aria-label={`Select ${scene.title}, starts ${formatTime(start)}, duration ${clipDuration.toFixed(2)} seconds`}
                     onClick={(event) => { event.stopPropagation(); onSelectScene(scene); }}
-                    onKeyDown={(event) => { if (event.key === "Enter" || event.key === " ") onSelectScene(scene); }}
+                    onKeyDown={(event) => { if (event.key === "Enter") { event.preventDefault(); onSelectScene(scene); } }}
                     onPointerDown={(event) => startDrag(event, scene, "move")}
                     onDragOver={(event) => { if (event.dataTransfer.types.includes("text/plain")) { event.preventDefault(); event.dataTransfer.dropEffect = "copy"; } }}
                     onDragEnter={(event) => { if (event.dataTransfer.types.includes("text/plain")) { event.preventDefault(); event.currentTarget.classList.add("is-drop-target"); } }}

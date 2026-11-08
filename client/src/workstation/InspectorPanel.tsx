@@ -1,5 +1,5 @@
 import type { ChangeEvent } from "react";
-import type { GuidedExportValidation } from "../guidedProduction";
+import { MAX_AUTHORED_SCENES, type GuidedExportValidation } from "../guidedProduction";
 import type { BackgroundMusicSettings } from "../backgroundMusic";
 import type { AlignmentMediaAsset } from "../visualAlignment";
 import { apiUrl } from "../api";
@@ -106,6 +106,7 @@ export function InspectorPanel(props: Props) {
           <div><dt>Music</dt><dd>{project.backgroundMusic?.originalName ?? "Off"}</dd></div>
           <div><dt>Output</dt><dd>{validation.outputDuration === null ? "Unknown" : formatTime(validation.outputDuration)}</dd></div>
         </dl>
+        <p className="workstation-muted">Limit: {MAX_AUTHORED_SCENES} authored scenes. Teaching pauses expand those scenes into render slices, separately, up to 120 per export.</p>
         {validation.issues.length > 0 && <ul className="workstation-issues">{validation.issues.map((issue) => <li key={issue.code}>{issue.message}</li>)}</ul>}
         <button type="button" className="workstation-primary workstation-generate" onClick={onGenerate} disabled={rendering || !validation.ready}>{rendering ? "Generating video…" : "Generate Video"}</button>
       </section>

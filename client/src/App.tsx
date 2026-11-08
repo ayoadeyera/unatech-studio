@@ -4,13 +4,14 @@ import { appendNonOverlappingSegmentScenes, segmentCanBePlaced } from "./narrati
 import { prepareScenesAutomatically, resolveAutomaticAssetSelection } from "./automaticScenePreparation";
 import type { AlignmentMediaAsset } from "./visualAlignment";
 import { DEFAULT_BACKGROUND_MUSIC_SETTINGS, type BackgroundMusicSettings } from "./backgroundMusic";
-import { validateGuidedExport } from "./guidedProduction";
+import { exceedsAuthoredSceneLimit, MAX_AUTHORED_SCENES, validateGuidedExport } from "./guidedProduction";
 import { apiRequest, apiUrl } from "./api";
 import type { BackgroundMusicAsset, NarrationSegment, Project, TeachingPause, VisualScene } from "./workstation/models";
 import { Workstation } from "./workstation/Workstation";
 import { snapTimelineTime, validateSceneTiming } from "./workstation/timelineEditing";
 import { createUuid } from "./workstation/createUuid";
 import { useLiveAudioMonitor } from "./workstation/useLiveAudioMonitor";
+import { isEditorShortcutTargetIgnored, resolveEditorShortcut } from "./workstation/editorKeyboardShortcuts";
 import { recordProjectEdit, snapshotProjectEdits, travelProjectEdit, type ProjectEditHistories } from "./workstation/projectEditHistory";
 import { uploadVisualBatch } from "./workstation/visualBatchUpload";
 import "./App.css";
@@ -66,6 +67,7 @@ function App() {
     useState<string | null>(() => {
       return localStorage.getItem(SELECTED_PROJECT_KEY);
     });
+  const selectedProjectIdRef = useRef<string | null>(selectedProjectId);
   const [audioFile, setAudioFile] = useState<File | null>(null);
   const [musicFile, setMusicFile] = useState<File | null>(null);
   const [musicLibrary, setMusicLibrary] = useState<BackgroundMusicAsset[]>([]);
@@ -79,6 +81,9 @@ function App() {
   const [renderSeconds, setRenderSeconds] = useState(0);
   const [renderMessage, setRenderMessage] = useState("");
   const [renderedVideoUrl, setRenderedVideoUrl] = useState<string | null>(null);
+  const [narrationPlaying, setNarrationPlaying] = useState(false);
+  const [playbackMessage, setPlaybackMessage] = useState("");
+  const [shortcutHelpOpen, setShortcutHelpOpen] = useState(false);
   const [visualLibrary, setVisualLibrary] = useState<AlignmentMediaAsset[]>([]);
   const [visualLibraryFiles, setVisualLibraryFiles] = useState<File[]>([]);
   const [visualLibraryUploading, setVisualLibraryUploading] = useState(false);
@@ -360,6 +365,9 @@ function App() {
   }
 
   function openProject(projectId: string) {
+    selectedProjectIdRef.current = projectId;
+    audioRef.current?.pause();
+    musicAudioRef.current?.pause();
     completedPreviewPausesRef.current.clear();
 
     if (teachingPauseTimerRef.current !== null) {
@@ -375,12 +383,23 @@ function App() {
     isTeachingPauseActiveRef.current = false;
     setPreviewTeachingPauseActive(false);
     lastPreviewPositionRef.current = 0;
+    setNarrationPlaying(false);
+    setPlaybackMessage("");
+    setShortcutHelpOpen(false);
     
     setSelectedProjectId(projectId);
     setAudioDuration(null);
     setNarrationDurationStatus("loading");
     setCurrentTime(0);
     setSelectedPauseId(null);
+    setVisualLibrary([]);
+    setMusicLibrary([]);
+    setSelectedAlignmentAssets([]);
+    setAlignmentMessage("");
+    setTimelineMessage("");
+    setSegmentationMessage("");
+    setRenderedVideoUrl(null);
+    setRenderMessage(rendering ? "A previous project's export is still running; wait for it to finish before starting another export." : "");
     setAudioFile(null);
     setVisualLibraryFiles([]);
     setMusicFile(null);
@@ -406,14 +425,34 @@ function App() {
     setCurrentTime(targetTime);
     setSelectedPauseId(pause.id);
   }
-  function seekToTime(time: number) {
+  const seekToTime = useCallback((time: number) => {
     if (!audioRef.current || audioDuration === null || audioDuration <= 0) return;
     const nextTime = Math.min(audioDuration, Math.max(0, time));
     audioRef.current.currentTime = nextTime;
     liveMonitor.syncTo(nextTime);
     lastPreviewPositionRef.current = nextTime;
     setCurrentTime(nextTime);
-  }
+  }, [audioDuration, liveMonitor]);
+
+  const toggleNarrationPlayback = useCallback(() => {
+    const audio = audioRef.current;
+    if (!audio) {
+      setPlaybackMessage("Upload narration before starting playback.");
+      return;
+    }
+    if (isTeachingPauseActiveRef.current) {
+      setPlaybackMessage("A teaching pause is in progress. Narration will resume automatically when it ends.");
+      return;
+    }
+    setPlaybackMessage("");
+    if (audio.paused || audio.ended) {
+      void audio.play().catch(() => {
+        setPlaybackMessage("Browser playback was blocked. Click Play in the narration player once, then use the Space shortcut.");
+      });
+    } else {
+      audio.pause();
+    }
+  }, []);
 
 
   const handleTeachingPausePreview = useCallback((
@@ -461,7 +500,7 @@ function App() {
       }
 
       audio.play().catch(() => {
-        // Browser playback may require user interaction.
+        setPlaybackMessage("Narration could not resume automatically after the teaching pause. Press Play to continue.");
       });
     }, pause.duration * 1000);
   }, [musicTransitionDuration, teachingPauses]);
@@ -492,20 +531,35 @@ function App() {
   useEffect(() => {
     if (view !== "editor" || !selectedProjectId) return;
     const onKeyDown = (event: KeyboardEvent) => {
-      if (!(event.ctrlKey || event.metaKey)) return;
-      const target = event.target;
-      if (target instanceof HTMLElement && (target.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(target.tagName))) return;
-      if (event.key.toLowerCase() === "z" && !event.shiftKey) {
-        event.preventDefault();
-        undoCurrentProject();
-      } else if (event.key.toLowerCase() === "y" || (event.key.toLowerCase() === "z" && event.shiftKey)) {
-        event.preventDefault();
-        redoCurrentProject();
+      const action = resolveEditorShortcut(event);
+      if (!action) {
+        if (event.key === " " && event.repeat && !isEditorShortcutTargetIgnored(event.target)) event.preventDefault();
+        return;
       }
+      event.preventDefault();
+      if (action === "toggle-shortcut-help") {
+        setShortcutHelpOpen((open) => !open);
+        return;
+      }
+      if (action === "toggle-playback") {
+        toggleNarrationPlayback();
+        return;
+      }
+      if (action === "undo") { undoCurrentProject(); return; }
+      if (action === "redo") { redoCurrentProject(); return; }
+      if (action === "timeline-start") { seekToTime(0); return; }
+      if (action === "timeline-end") {
+        if (audioDuration !== null) seekToTime(audioDuration);
+        return;
+      }
+      const seekDelta = action === "seek-back-5" ? -5
+        : action === "seek-forward-5" ? 5
+          : action === "seek-back-1" ? -1 : 1;
+      if (audioRef.current && audioDuration !== null) seekToTime(audioRef.current.currentTime + seekDelta);
     };
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
-  }, [redoCurrentProject, selectedProjectId, undoCurrentProject, view]);
+  }, [audioDuration, redoCurrentProject, seekToTime, selectedProjectId, toggleNarrationPlayback, undoCurrentProject, view]);
 
   useEffect(() => {
     const audio = audioRef.current;
@@ -635,6 +689,10 @@ function App() {
 
   function addVisualScene() {
     if (!selectedProjectId) return;
+    if (exceedsAuthoredSceneLimit(visualScenes.length + 1)) {
+      setTimelineMessage(`This project already has ${MAX_AUTHORED_SCENES} authored scenes, the export limit. Remove or merge a scene before adding another. Teaching pauses are separate render slices.`);
+      return;
+    }
 
     const sortedScenes = [...visualScenes].sort((a, b) => a.startTime - b.startTime);
     const startTime = sortedScenes.reduce(
@@ -829,6 +887,12 @@ function App() {
       existingScenes,
       () => createUuid(),
     );
+    if (exceedsAuthoredSceneLimit(result.scenes.length)) {
+      setSegmentationMessage(
+        `Cannot append ${result.addedCount} scene slots: the project would have ${result.scenes.length} authored scenes, but exports support at most ${MAX_AUTHORED_SCENES}. Merge or edit narration segments first. No scene changes were applied. Teaching pauses are separate render slices.`,
+      );
+      return;
+    }
     if (result.addedCount === 0) {
       setSegmentationMessage(
         result.overlapCount > 0
@@ -837,6 +901,7 @@ function App() {
       );
       return;
     }
+    recordCurrentProjectEdit();
     const updatedProjects = projects.map((project) => project.id === selectedProjectId
       ? { ...project, visualScenes: result.scenes }
       : project);
@@ -854,7 +919,7 @@ function App() {
     setAlignmentMessage("");
     try {
       if (!selectedProject.narration?.filename) {
-        setAlignmentMessage("Upload narration in Stage 1 before preparing scenes.");
+        setAlignmentMessage("Upload narration in the Narration panel before building scenes.");
         return;
       }
       if (visualLibraryMessage === "Loading project media…") {
@@ -880,7 +945,7 @@ function App() {
         segments = data.segments.map((segment) => ({ ...segment, id: createUuid() }));
       }
       if (segments.length === 0) {
-        setAlignmentMessage("No narration activity segments were found. Review the narration or create segments manually in Stage 1.");
+        setAlignmentMessage("No narration activity segments were found. Review the narration or create segments in the Narration panel.");
         return;
       }
 
@@ -891,6 +956,12 @@ function App() {
         selectedProject.visualScenes ?? [],
         (segmentId) => `scene-${segmentId}-${createUuid()}`,
       );
+      if (exceedsAuthoredSceneLimit(result.scenes.length)) {
+        setAlignmentMessage(
+          `Auto Build stopped: ${result.scenes.length} authored scene slots would exceed the export limit of ${MAX_AUTHORED_SCENES}. Select or reduce the assets, or merge/review narration segments, then try again. The project was not changed. Teaching pauses are separate render slices and do not count as authored scenes.`,
+        );
+        return;
+      }
       setAlignmentMessage("Applying chronological assignments and preserving existing scenes…");
       if (!result.changed && segments === (selectedProject.narrationSegments ?? [])) {
         setAlignmentMessage(
@@ -901,11 +972,13 @@ function App() {
       const updatedProjects = projects.map((project) => project.id === selectedProjectId
         ? { ...project, narrationSegments: segments, visualScenes: result.scenes as VisualScene[] }
         : project);
+      if (result.changed) recordCurrentProjectEdit();
       setProjects(updatedProjects);
       localStorage.setItem(STORAGE_KEY, JSON.stringify(updatedProjects));
       const warnings = [
         visualLibrary.length === 0 ? "No visuals are uploaded; the new slots are empty until you add media." : "",
         result.skippedCount > 0 ? "Some assignments were skipped because media was unavailable, timing conflicted, or scenes were already populated." : "",
+        result.skippedReasons.includes("scene-limit") ? `Exports support at most ${MAX_AUTHORED_SCENES} authored scenes; merge segments or select fewer visuals before assigning the remaining media.` : "",
       ].filter(Boolean).join(" ");
       setAlignmentMessage(
         `${result.createdCount} scene slots created · ${result.assignedCount} assets assigned · ${result.preservedCount} existing scenes preserved · ${result.skippedCount} assignments skipped.${warnings ? ` ${warnings}` : " Review the scenes before export."}`,
@@ -1047,6 +1120,7 @@ function App() {
 
   async function generateVideo() {
     if (!selectedProject || rendering) return;
+    const renderProjectId = selectedProject.id;
     if (!exportValidation.ready) {
       setRenderMessage(`Resolve these items before export: ${exportValidation.issues.map((issue) => issue.message).join(" ")}`);
       return;
@@ -1058,6 +1132,7 @@ function App() {
     setRendering(true);
     setRenderMessage("Generating your video. Keep this page open...");
     setRenderedVideoUrl(null);
+    let renderSucceeded = false;
 
     try {
       const data = await apiRequest<{ success: boolean; message?: string; video?: { url?: string } }>(
@@ -1083,18 +1158,27 @@ function App() {
       if (!data.success || !data.video?.url) {
         throw new Error(data.message || "Video rendering failed.");
       }
+      renderSucceeded = true;
 
-      setRenderedVideoUrl(apiUrl(data.video.url));
-
-      setRenderMessage("Video generated successfully!");
+      if (selectedProjectIdRef.current === renderProjectId) {
+        setRenderedVideoUrl(apiUrl(data.video.url));
+        setRenderMessage("Video generated successfully!");
+      }
     } catch (error) {
-      setRenderMessage(
-        error instanceof Error
-          ? error.message
-          : "Unable to generate the video."
-      );
+      if (selectedProjectIdRef.current === renderProjectId) {
+        setRenderMessage(
+          error instanceof Error
+            ? error.message
+            : "Unable to generate the video."
+        );
+      }
     } finally {
       setRendering(false);
+      if (selectedProjectIdRef.current !== renderProjectId) {
+        setRenderMessage(renderSucceeded
+          ? "The previous project's export finished. This project's scenes were not changed."
+          : "The previous project's export failed. Reopen that project to review the error; this project's scenes were not changed.");
+      }
     }
   }
 
@@ -1104,9 +1188,23 @@ function App() {
       crossOrigin="anonymous"
       controls
       preload="metadata"
-      onPause={(event) => { liveMonitor.onNarrationPause(isTeachingPauseActiveRef.current); setCurrentTime(event.currentTarget.currentTime); setPreviewSyncRevision((revision) => revision + 1); }}
-      onPlay={(event) => { liveMonitor.onNarrationPlay(); liveMonitor.syncTo(event.currentTarget.currentTime); setCurrentTime(event.currentTarget.currentTime); setPreviewSyncRevision((revision) => revision + 1); }}
+      onPause={(event) => { setNarrationPlaying(false); liveMonitor.onNarrationPause(isTeachingPauseActiveRef.current); setCurrentTime(event.currentTarget.currentTime); setPreviewSyncRevision((revision) => revision + 1); }}
+      onPlay={(event) => {
+        if (isTeachingPauseActiveRef.current) {
+          event.currentTarget.pause();
+          setNarrationPlaying(false);
+          setPlaybackMessage("A teaching pause is in progress. Narration will resume automatically when it ends.");
+          return;
+        }
+        setNarrationPlaying(true);
+        setPlaybackMessage("");
+        liveMonitor.onNarrationPlay();
+        liveMonitor.syncTo(event.currentTarget.currentTime);
+        setCurrentTime(event.currentTarget.currentTime);
+        setPreviewSyncRevision((revision) => revision + 1);
+      }}
       onEnded={(event) => {
+        setNarrationPlaying(false);
         liveMonitor.onNarrationEnded();
         event.currentTarget.currentTime = 0;
         setCurrentTime(0);
@@ -1140,7 +1238,7 @@ function App() {
         setCurrentTime(restored);
         localStorage.setItem(key, String(restored));
       }}
-      onError={() => { setAudioDuration(null); setNarrationDurationStatus("unavailable"); }}
+      onError={() => { setNarrationPlaying(false); setAudioDuration(null); setNarrationDurationStatus("unavailable"); setPlaybackMessage("Narration playback failed. Rechoose a readable MP3 or WAV file and upload it again."); }}
       src={apiUrl(selectedProject.narration.url)}
     >Your browser does not support narration playback.</audio>
   ) : <div className="workstation-preview-empty">Upload narration to preview this project.</div>;
@@ -1292,6 +1390,7 @@ function App() {
 
         {view === "editor" && selectedProject && (
           <Workstation
+            key={selectedProject.id}
             project={selectedProject}
             scenes={visualScenes}
             pauses={teachingPauses}
@@ -1313,6 +1412,12 @@ function App() {
             visualFiles={visualLibraryFiles}
             musicAudioElement={musicAudioElement}
             monitorStatus={liveMonitor.status}
+            playbackMessage={playbackMessage}
+            narrationPlaying={narrationPlaying}
+            teachingPauseActive={previewTeachingPauseActive}
+            shortcutHelpOpen={shortcutHelpOpen}
+            onTogglePlayback={toggleNarrationPlayback}
+            onToggleShortcutHelp={() => setShortcutHelpOpen((open) => !open)}
             canUndo={(projectEditHistories[selectedProject.id]?.undo.length ?? 0) > 0}
             canRedo={(projectEditHistories[selectedProject.id]?.redo.length ?? 0) > 0}
             musicFile={musicFile}
@@ -1329,7 +1434,7 @@ function App() {
             segmenting={segmenting}
             preparing={preparingScenes}
             rendering={rendering}
-            onBack={() => setView("projects")}
+            onBack={() => { audioRef.current?.pause(); musicAudioRef.current?.pause(); setView("projects"); }}
             onNarrationFile={setAudioFile}
             onVisualFiles={setVisualLibraryFiles}
             onMusicFile={setMusicFile}

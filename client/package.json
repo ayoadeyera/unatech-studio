@@ -7,7 +7,7 @@
     "dev": "vite",
     "build": "tsc -b && vite build",
     "lint": "eslint .",
-    "test:workstation": "node src/workstation/createUuid.test.cjs && node src/workstation/timelineEditing.test.cjs && node src/workstation/liveAudioMonitor.test.cjs && node src/workstation/projectEditHistory.test.cjs && node src/workstation/visualBatchUpload.test.cjs",
+    "test:workstation": "node src/workstation/createUuid.test.cjs && node src/workstation/timelineEditing.test.cjs && node src/workstation/liveAudioMonitor.test.cjs && node src/workstation/projectEditHistory.test.cjs && node src/workstation/visualBatchUpload.test.cjs && node src/workstation/editorKeyboardShortcuts.test.cjs",
     "preview": "vite preview"
   },
   "dependencies": {

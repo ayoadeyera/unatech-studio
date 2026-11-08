@@ -1,4 +1,4 @@
-import { useMemo, useState, type ReactNode } from "react";
+import { useState, type ReactNode } from "react";
 import type { GuidedExportValidation } from "../guidedProduction";
 import type { AlignmentMediaAsset } from "../visualAlignment";
 import type { BackgroundMusicSettings } from "../backgroundMusic";
@@ -25,6 +25,12 @@ interface Props {
   audioElement: ReactNode;
   musicAudioElement: ReactNode;
   monitorStatus: string;
+  playbackMessage: string;
+  narrationPlaying: boolean;
+  teachingPauseActive: boolean;
+  shortcutHelpOpen: boolean;
+  onTogglePlayback: () => void;
+  onToggleShortcutHelp: () => void;
   videoRef: React.RefObject<HTMLVideoElement | null>;
   renderedVideoUrl: string | null;
   renderSeconds: number;
@@ -82,15 +88,11 @@ interface Props {
 }
 
 export function Workstation(props: Props) {
-  const [selectedSceneId, setSelectedSceneId] = useState<string | null>(null);
   const [timingMessage, setTimingMessage] = useState("");
-  const selectedScene = useMemo(
-    () => props.scenes.find((scene) => scene.id === selectedSceneId) ?? props.activeScene,
-    [props.activeScene, props.scenes, selectedSceneId],
-  );
+  // The playhead is the single source for preview and Inspector scene selection.
+  const selectedScene = props.activeScene;
 
   function selectScene(scene: VisualScene) {
-    setSelectedSceneId(scene.id);
     props.onSeek(scene.startTime);
   }
 
@@ -120,6 +122,8 @@ export function Workstation(props: Props) {
   />;
   const preview = <PreviewPanel scene={props.activeScene} currentTime={props.currentTime}
     duration={props.audioDuration} audio={props.audioElement} musicAudio={props.musicAudioElement} monitorStatus={props.monitorStatus} renderStatus={props.renderStatus}
+    playbackMessage={props.playbackMessage} narrationPlaying={props.narrationPlaying} teachingPauseActive={props.teachingPauseActive}
+    shortcutHelpOpen={props.shortcutHelpOpen} onTogglePlayback={props.onTogglePlayback} onToggleShortcutHelp={props.onToggleShortcutHelp}
     videoRef={props.videoRef} renderedVideoUrl={props.renderedVideoUrl} rendering={props.rendering} renderSeconds={props.renderSeconds} />;
   const inspector = <InspectorPanel
     project={props.project} scene={selectedScene} assets={props.assets} pauses={props.pauses}

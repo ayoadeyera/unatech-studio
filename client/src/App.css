@@ -276,6 +276,16 @@ a {
 .workstation-preview-time { position: absolute; bottom: 9px; right: 9px; border-radius: 4px; padding: 3px 6px; color: #fff; background: #000b; font: 11px ui-monospace, monospace; }
 .workstation-preview-panel audio { width: 100%; height: 38px; }
 .workstation-preview-status, .workstation-render-progress { color: #9eabc0; font-size: 10px; }
+.workstation-preview-controls { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; }
+.workstation-preview-error { color: #fecaca; }
+.workstation-shortcut-reference { margin-top: 2px; padding: 12px; border: 1px solid #465575; border-radius: 9px; background: #10172a; color: #e2e8f0; }
+.workstation-shortcut-reference > header { display: flex; justify-content: space-between; align-items: center; gap: 12px; }
+.workstation-shortcut-reference h3 { margin: 0; }
+.workstation-shortcut-reference dl { display: grid; gap: 6px; margin: 12px 0; }
+.workstation-shortcut-reference dl > div { display: grid; grid-template-columns: minmax(160px, 0.8fr) 1fr; gap: 10px; }
+.workstation-shortcut-reference dd { margin: 0; color: #cbd5e1; }
+.workstation-shortcut-reference p { margin: 0; color: #aeb8ce; font-size: 0.9rem; }
+.workstation-shortcut-reference kbd { padding: 2px 5px; border: 1px solid #52617d; border-radius: 4px; background: #202b42; }
 .workstation-rendered-output { display: grid; grid-template-columns: 1fr auto; align-items: center; gap: 8px; }
 .workstation-rendered-output h3 { margin: 0; font-size: 12px; }
 .workstation-rendered-output video { grid-column: 1 / -1; width: 100%; max-height: 220px; background: #000; }
@@ -478,63 +488,6 @@ a {
   white-space: nowrap;
 }
 
-.editor-stage-title {
-  margin-top: 24px;
-  padding-bottom: 16px;
-  border-bottom: 1px solid #303b55;
-}
-
-.editor-stage-title > span,
-.wizard-navigation > span,
-.wizard-final-stage-note {
-  color: #aeb8ce;
-  font-size: 13px;
-}
-
-.editor-stage-title h3 {
-  margin: 6px 0;
-}
-
-.editor-stage-title p {
-  margin: 0;
-  color: #aeb8ce;
-  line-height: 1.45;
-}
-
-.wizard-navigation {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-  margin: 20px 0;
-  padding-top: 16px;
-  border-top: 1px solid #303b55;
-}
-
-.wizard-navigation .primary-button,
-.wizard-navigation .secondary-button {
-  width: auto;
-  margin: 0;
-}
-
-.wizard-navigation .secondary-button {
-  padding: 12px 20px;
-  border: 1px solid #475569;
-  border-radius: 9px;
-  background: #1e293b;
-  color: #e2e8f0;
-  cursor: pointer;
-}
-
-.wizard-navigation .secondary-button:disabled {
-  opacity: 0.5;
-  cursor: not-allowed;
-}
-
-.wizard-final-stage-note {
-  text-align: right;
-}
-
 .guided-step {
   padding: 12px;
   border: 1px solid #303b55;
@@ -638,9 +591,6 @@ a {
     padding: 8px;
   }
 
-  .wizard-navigation {
-    flex-wrap: wrap;
-  }
 }
 
 .project-form {

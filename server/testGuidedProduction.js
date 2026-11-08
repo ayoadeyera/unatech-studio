@@ -8,11 +8,14 @@ async function main() {
     updateProjectGuidedStep,
     updateProjectGuidedStage,
     validateGuidedExport,
+    MAX_AUTHORED_SCENES,
+    exceedsAuthoredSceneLimit,
   } = await import("../client/src/guidedProduction.ts");
   const {
     createSequentialVisualAssignments,
     planVisualAlignment,
   } = await import("../client/src/visualAlignment.ts");
+  const { prepareScenesAutomatically } = await import("../client/src/automaticScenePreparation.ts");
 
   const readyProject = {
     id: "ready",
@@ -95,6 +98,30 @@ async function main() {
   assert(overlapValidation.issues.some((issue) => issue.code === "overlapping-scenes"));
   assert.equal(getGuidedStepState("pauses", overlappingProject, overlapValidation), "recommended", "pauses remain optional");
   assert.equal(getGuidedStepState("music", { ...overlappingProject, backgroundMusic: undefined }, overlapValidation), "recommended", "music remains optional");
+
+  assert.equal(MAX_AUTHORED_SCENES, 20, "renderer scene limit is explicit for authored scenes");
+  assert.equal(exceedsAuthoredSceneLimit(20), false, "the maximum authored scene count is allowed");
+  assert.equal(exceedsAuthoredSceneLimit(21), true, "an over-limit Auto Build can be rejected before project mutation");
+  const overLimitScenes = Array.from({ length: MAX_AUTHORED_SCENES + 1 }, (_, index) => ({
+    title: `Scene ${index + 1}`, startTime: index, duration: 1, mediaUrl: `/scene-${index + 1}.png`,
+  }));
+  const overLimitValidation = validateGuidedExport({ ...readyProject, visualScenes: overLimitScenes }, MAX_AUTHORED_SCENES + 1);
+  assert(overLimitValidation.issues.some((issue) => issue.code === "too-many-scenes"), "export readiness explains the authored scene limit");
+  const overLimitSegments = Array.from({ length: MAX_AUTHORED_SCENES + 1 }, (_, index) => ({
+    id: `over-limit-${index}`, startTime: index, endTime: index + 1, duration: 1,
+  }));
+  const overLimitAssets = overLimitSegments.map((_, index) => ({
+    id: `over-limit-asset-${index}`, filename: `scene-${index}.png`, originalName: `scene-${index}.png`,
+    url: `/scene-${index}.png`, size: 1, mediaType: "image",
+  }));
+  const emptyAuthoredScenes = [];
+  const overLimitPreparation = prepareScenesAutomatically(
+    overLimitSegments, overLimitAssets.map((asset) => asset.id), overLimitAssets, emptyAuthoredScenes,
+    (segmentId) => `scene-${segmentId}`,
+  );
+  assert.equal(overLimitPreparation.scenes.length, MAX_AUTHORED_SCENES + 1, "the boundary case reproduces an over-limit automatic timeline proposal");
+  assert(exceedsAuthoredSceneLimit(overLimitPreparation.scenes.length), "Auto Build must reject the proposal before saving any scene changes");
+  assert.deepEqual(emptyAuthoredScenes, [], "a rejected automatic preparation keeps the stored arrangement unchanged");
 
   const sceneOutsideNarration = validateGuidedExport({
     ...readyProject,

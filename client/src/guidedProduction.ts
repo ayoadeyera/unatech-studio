@@ -105,8 +105,12 @@ export function updateProjectGuidedStage<Project extends GuidedProjectRecord>(
 }
 
 const MAX_TIMELINE_SECONDS = 300;
-const MAX_SCENES = 20;
+export const MAX_AUTHORED_SCENES = 20;
 const MAX_PAUSES = 50;
+
+export function exceedsAuthoredSceneLimit(sceneCount: number): boolean {
+  return sceneCount > MAX_AUTHORED_SCENES;
+}
 
 export function validateGuidedExport(
   project: GuidedProjectSnapshot | null | undefined,
@@ -131,8 +135,11 @@ export function validateGuidedExport(
   if (scenes.length < 2) {
     issues.push({ code: "too-few-scenes", message: "Add at least two visual scenes." });
   }
-  if (scenes.length > MAX_SCENES) {
-    issues.push({ code: "too-many-scenes", message: `The renderer supports at most ${MAX_SCENES} visual scenes.` });
+  if (scenes.length > MAX_AUTHORED_SCENES) {
+    issues.push({
+      code: "too-many-scenes",
+      message: `This project has ${scenes.length} authored visual scenes; exports support at most ${MAX_AUTHORED_SCENES}. Reduce or merge scenes before exporting. Teaching pauses are added as render slices after authored scenes are validated.`,
+    });
   }
   if (scenes.some((scene) => !scene.mediaUrl)) {
     issues.push({ code: "missing-scene-media", message: "Upload media for every visual scene." });
