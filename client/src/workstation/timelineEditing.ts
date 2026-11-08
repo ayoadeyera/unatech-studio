@@ -7,6 +7,15 @@ export function snapTimelineTime(seconds: number, step = 0.25): number {
   return Number((Math.round(seconds / step) * step).toFixed(3));
 }
 
+export function snapTimelineDelta(seconds: number, step = 0.25): number {
+  if (!Number.isFinite(seconds)) return 0;
+  return Number((Math.round(seconds / step) * step).toFixed(3));
+}
+
+export function shouldScrubOnPointerMove(isScrubbing: boolean, isSceneDragging: boolean): boolean {
+  return isScrubbing && !isSceneDragging;
+}
+
 export function validateSceneTiming(
   scenes: readonly SceneTiming[],
   sceneId: string,

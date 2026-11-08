@@ -1,6 +1,6 @@
 import { useMemo, useRef, useState, type PointerEvent } from "react";
 import type { TeachingPause, VisualScene } from "./models";
-import { snapTimelineTime } from "./timelineEditing";
+import { snapTimelineDelta, snapTimelineTime, shouldScrubOnPointerMove } from "./timelineEditing";
 
 type DragMode = "move" | "trim-start" | "trim-end";
 interface DragState {
@@ -36,6 +36,7 @@ export function WorkstationTimeline({
 }: Props) {
   const [zoom, setZoom] = useState(1);
   const [drag, setDrag] = useState<DragState | null>(null);
+  const isScrubbingRef = useRef(false);
   const canvasRef = useRef<HTMLDivElement>(null);
   const total = Math.max(0.1, duration);
   const widthPercent = `${zoom * 100}%`;
@@ -62,9 +63,12 @@ export function WorkstationTimeline({
   }
 
   function updateDrag(event: PointerEvent<HTMLDivElement>) {
-    if (!drag) { scrub(event); return; }
+    if (!drag) {
+      if (shouldScrubOnPointerMove(isScrubbingRef.current, false)) scrub(event);
+      return;
+    }
     if (!canvasRef.current) return;
-    const delta = snapTimelineTime(
+    const delta = snapTimelineDelta(
       (event.clientX - drag.originX) / canvasRef.current.getBoundingClientRect().width * total,
     );
     if (drag.mode === "move") {
@@ -82,6 +86,7 @@ export function WorkstationTimeline({
 
   function finishDrag(event: PointerEvent<HTMLDivElement>) {
     if (!drag) {
+      isScrubbingRef.current = false;
       if (canvasRef.current?.hasPointerCapture(event.pointerId)) canvasRef.current.releasePointerCapture(event.pointerId);
       return;
     }
@@ -93,6 +98,7 @@ export function WorkstationTimeline({
 
   function scrub(event: PointerEvent<HTMLDivElement>) {
     if (drag || !canvasRef.current) return;
+    if (event.type === "pointerdown") isScrubbingRef.current = true;
     const bounds = canvasRef.current.getBoundingClientRect();
     canvasRef.current.setPointerCapture(event.pointerId);
     onSeek(Math.min(total, Math.max(0, (event.clientX - bounds.left) / bounds.width * total)));
@@ -117,7 +123,7 @@ export function WorkstationTimeline({
           onPointerDown={scrub}
           onPointerMove={updateDrag}
           onPointerUp={finishDrag}
-          onPointerCancel={() => setDrag(null)}
+          onPointerCancel={() => { isScrubbingRef.current = false; setDrag(null); }}
         >
           <div className="timeline-ruler">
             {[0, 0.25, 0.5, 0.75, 1].map((fraction) => (
