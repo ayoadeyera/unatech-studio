@@ -4,7 +4,9 @@ async function main() {
   const {
     getGuidedStepState,
     getGuidedStepStatusLabel,
+    getProjectGuidedStage,
     updateProjectGuidedStep,
+    updateProjectGuidedStage,
     validateGuidedExport,
   } = await import("../client/src/guidedProduction.ts");
   const {
@@ -118,6 +120,15 @@ async function main() {
   assert.equal(updated[1].guidedProduction.activeStep, "narration", "workflow progress is scoped to its project");
   assert.equal(updated[0].visualScenes, projects[0].visualScenes, "changing workflow step preserves existing scene objects and media");
   assert.equal(projects[0].guidedProduction.activeStep, "visuals", "workflow updates do not mutate stored project records");
+  const stageUpdated = updateProjectGuidedStage(updated, "ready", "audio");
+  assert.equal(stageUpdated[0].guidedProduction.activeStage, "audio", "wizard stage is persisted on its project");
+  assert.equal(stageUpdated[1].guidedProduction.activeStage, undefined, "wizard stage updates remain project-scoped");
+  assert.equal(getProjectGuidedStage(JSON.parse(JSON.stringify(stageUpdated[0]))), "audio", "saved wizard stage survives project reopening");
+  assert.equal(getProjectGuidedStage({ guidedProduction: { activeStep: "segments" } }), "narration", "legacy segmentation step opens narration stage");
+  assert.equal(getProjectGuidedStage({ guidedProduction: { activeStep: "visuals" } }), "visuals", "legacy visual step opens visuals stage");
+  assert.equal(getProjectGuidedStage({ guidedProduction: { activeStep: "pauses" } }), "audio", "legacy pause step opens audio and timing stage");
+  assert.equal(getProjectGuidedStage({ guidedProduction: { activeStep: "music" } }), "audio", "legacy music step opens audio and timing stage");
+  assert.equal(getProjectGuidedStage({ guidedProduction: { activeStep: "export" } }), "export", "legacy export step opens preview and export stage");
 
   const guidedSegments = [
     { id: "segment-a", startTime: 0, endTime: 3, duration: 3 },

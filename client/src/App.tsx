@@ -8,7 +8,7 @@ import {
   type AlignmentMediaAsset,
 } from "./visualAlignment";
 import { DEFAULT_BACKGROUND_MUSIC_SETTINGS, type BackgroundMusicSettings } from "./backgroundMusic";
-import { getGuidedStepState, getGuidedStepStatusLabel, updateProjectGuidedStep, validateGuidedExport, type GuidedStepId } from "./guidedProduction";
+import { getGuidedStepState, getGuidedStepStatusLabel, getProjectGuidedStage, updateProjectGuidedStage, validateGuidedExport, type GuidedStageId, type GuidedStepId } from "./guidedProduction";
 import { apiRequest, apiUrl } from "./api";
 import "./App.css";
 
@@ -65,7 +65,7 @@ interface Project {
   };
   backgroundMusic?: { filename: string; originalName: string };
   backgroundMusicSettings?: BackgroundMusicSettings;
-  guidedProduction?: { activeStep: GuidedStepId };
+  guidedProduction?: { activeStep?: GuidedStepId; activeStage?: GuidedStageId };
 }
 
 
@@ -145,6 +145,7 @@ function App() {
   const selectedProject = projects.find(
     (project) => project.id === selectedProjectId
   );
+  const activeStage = getProjectGuidedStage(selectedProject);
 
 
 
@@ -367,7 +368,7 @@ function App() {
       backgroundMusicSettings: { ...DEFAULT_BACKGROUND_MUSIC_SETTINGS },
       teachingPauses: [],
       visualScenes: [],
-      guidedProduction: { activeStep: "narration" },
+      guidedProduction: { activeStage: "narration", activeStep: "narration" },
     };
 
     const updated = [project, ...projects];
@@ -802,15 +803,18 @@ function App() {
     );
   }
 
-  function setGuidedProductionStep(step: GuidedStepId) {
+  function setEditorStage(stage: GuidedStageId) {
     if (!selectedProjectId) return;
-    const updatedProjects = updateProjectGuidedStep(projects, selectedProjectId, step);
+    const updatedProjects = updateProjectGuidedStage(projects, selectedProjectId, stage);
     setProjects(updatedProjects);
     localStorage.setItem(STORAGE_KEY, JSON.stringify(updatedProjects));
-    const targetId = `guided-step-${step}`;
-    window.requestAnimationFrame(() => {
-      document.getElementById(targetId)?.scrollIntoView({ behavior: "smooth", block: "start" });
-    });
+    window.scrollTo({ top: 0, behavior: "smooth" });
+  }
+
+  function moveEditorStage(direction: -1 | 1) {
+    const stages: readonly GuidedStageId[] = ["narration", "visuals", "audio", "export"];
+    const nextIndex = Math.min(stages.length - 1, Math.max(0, stages.indexOf(activeStage) + direction));
+    setEditorStage(stages[nextIndex]);
   }
 
   function toggleAlignmentAsset(assetId: string) {
@@ -1275,33 +1279,49 @@ function App() {
                   {exportValidation.ready ? "Ready to export" : `${exportValidation.issues.length} item${exportValidation.issues.length === 1 ? "" : "s"} to resolve`}
                 </span>
               </div>
-              <ol className="guided-step-list">
+              <ol className="editor-progress" aria-label="Production stages">
                 {([
-                  ["narration", "1. Narration", "Upload or confirm the narration audio."],
-                  ["segments", "2. Segmentation", "Suggest and adjust audio activity boundaries; this does not transcribe speech."],
-                  ["visuals", "3. Visual assignment", "Choose assets and preview safe timestamped assignments."],
-                  ["pauses", "4. Teaching pauses", "Add pauses where needed; existing pause behavior is preserved."],
-                  ["music", "5. Background music", "Choose a project track and adjust export mixing levels, or skip music."],
-                  ["export", "6. Review and export", "Check media, timing, and estimated output duration."],
-                ] as const).map(([step, label, description]) => {
-                  const status = getGuidedStepState(step, selectedProject, exportValidation);
-                  const statusLabel = getGuidedStepStatusLabel(step, status, exportValidation);
-                  return (
-                    <li key={step} className={`guided-step guided-step-${status}`} aria-current={(selectedProject?.guidedProduction?.activeStep ?? "narration") === step ? "step" : undefined}>
-                      <div className="guided-step-copy">
+                  ["narration", "1", "Narration", getGuidedStepState("narration", selectedProject, exportValidation)],
+                  ["visuals", "2", "Visuals", getGuidedStepState("visuals", selectedProject, exportValidation)],
+                  ["audio", "3", "Audio & Timing", getGuidedStepState("pauses", selectedProject, exportValidation) === "needs-attention" || getGuidedStepState("music", selectedProject, exportValidation) === "needs-attention" ? "needs-attention" : "complete"],
+                  ["export", "4", "Preview & Export", getGuidedStepState("export", selectedProject, exportValidation)],
+                ] as const).map(([stage, number, label, status]) => (
+                  <li key={stage} className={`editor-progress-item editor-progress-${status}`}>
+                    <button
+                      type="button"
+                      aria-current={activeStage === stage ? "step" : undefined}
+                      aria-label={`Stage ${number}: ${label}${activeStage === stage ? ", current stage" : ""}`}
+                      onClick={() => setEditorStage(stage)}
+                    >
+                      <span className="editor-progress-number">{number}</span>
+                      <span className="editor-progress-copy">
                         <strong>{label}</strong>
-                        <span className="guided-step-status">{statusLabel}</span>
-                        <p>{description}</p>
-                      </div>
-                      <button type="button" className="secondary-button" onClick={() => setGuidedProductionStep(step)}>
-                        {(selectedProject?.guidedProduction?.activeStep ?? "narration") === step ? "Current step" : "Open step"}
-                      </button>
-                    </li>
-                  );
-                })}
+                        <span>{stage === "narration"
+                          ? getGuidedStepStatusLabel("narration", status, exportValidation)
+                          : stage === "visuals"
+                            ? getGuidedStepStatusLabel("visuals", status, exportValidation)
+                            : stage === "audio"
+                              ? status === "needs-attention" ? "Review audio timing" : `${teachingPauses.length} pauses · ${selectedProject?.backgroundMusic?.filename ? "Music selected" : "Music optional"}`
+                              : getGuidedStepStatusLabel("export", status, exportValidation)}</span>
+                      </span>
+                    </button>
+                  </li>
+                ))}
               </ol>
+              <div className="editor-stage-title" aria-live="polite">
+                <span>Stage {(["narration", "visuals", "audio", "export"] as const).indexOf(activeStage) + 1} of 4</span>
+                <h3>{activeStage === "narration" ? "Narration" : activeStage === "visuals" ? "Visuals" : activeStage === "audio" ? "Audio & Timing" : "Preview & Export"}</h3>
+                <p>{activeStage === "narration"
+                  ? "Upload and review your narration. Segment suggestions are optional and can be adjusted before use."
+                  : activeStage === "visuals"
+                    ? "Upload visuals, assign them by narration timing, and edit scene details."
+                    : activeStage === "audio"
+                      ? "Set teaching pauses and optional background music for this project."
+                      : "Check export readiness, preview the synchronized result, and download the MP4."}</p>
+              </div>
             </section>
             <div className="project-form">
+              {activeStage === "narration" && <>
               <h3 id="guided-step-narration">Audio Studio</h3>
               <p>Import your ElevenLabs narration (MP3 or WAV, maximum 100 MB).</p>
 
@@ -1327,7 +1347,9 @@ function App() {
               </button>
 
               {uploadMessage && <p role="status">{uploadMessage}</p>}
+              </>}
 
+              {activeStage === "audio" && <>
               <section className="background-music-settings" id="guided-step-music" aria-labelledby="background-music-heading">
                 <h4 id="background-music-heading">Background Music</h4>
                 <p>
@@ -1422,11 +1444,13 @@ function App() {
                   Adjust the levels and ramps for this project.
                 </p>
               </section>
+              </>}
 
               {projects
                 .find((project) => project.id === selectedProjectId)
                 ?.narration && (
                   <div>
+                    {activeStage === "narration" && <>
                     <h4>Uploaded Narration</h4>
 
                     <p>
@@ -1436,10 +1460,12 @@ function App() {
                         )?.narration?.originalName
                       }
                     </p>
+                    </>}
 
                     <audio
                       ref={audioRef}
-                      controls
+                      controls={activeStage !== "visuals"}
+                      hidden={activeStage === "visuals"}
                       preload="metadata"
                       onPause={(event) => {
                         setCurrentTime(event.currentTarget.currentTime);
@@ -1544,6 +1570,7 @@ function App() {
                       Your browser does not support audio playback.
                     </audio>
 
+                    {activeStage === "narration" && <>
                     <div className="narration-details">
 
                       <p>
@@ -1632,8 +1659,9 @@ function App() {
                         </>
                       )}
                     </section>
+                    </>}
 
-                    {audioDuration !== null && audioDuration > 0 && (
+                    {activeStage === "audio" && audioDuration !== null && audioDuration > 0 && (
                       <section className="timeline-section">
                         <h3>Smart Timeline</h3>
 
@@ -1829,7 +1857,17 @@ function App() {
                   </div>
                 )}
             </div>
-            <section className="visual-scenes-section">
+            {activeStage === "audio" && (audioDuration === null || narrationDurationStatus !== "ready") && (
+              <p className="audio-timing-message" role="status">
+                {selectedProject?.narration
+                  ? narrationDurationStatus === "loading"
+                    ? "Loading narration duration. Teaching pause timing will appear when audio metadata is ready."
+                    : "Narration duration is unavailable. Reselect a supported audio file to enable teaching pause timing."
+                  : "Upload narration in Stage 1 to enable teaching pause timing. Background music can be set up now."}
+              </p>
+            )}
+            {(activeStage === "visuals" || activeStage === "export") && <section className="visual-scenes-section">
+              {activeStage === "visuals" && <>
               <div className="alignment-panel" id="guided-step-visuals">
                 <div className="visual-scenes-header">
                   <div>
@@ -1920,6 +1958,7 @@ function App() {
                   </>
                 )}
               </div>
+              </>}
               <div className="active-visual-scene">
                 <h3>Active Visual Scene</h3>
 
@@ -1981,6 +2020,7 @@ function App() {
                   <p>No visual scene is active at this position.</p>
                 )}
               </div>
+              {activeStage === "visuals" && <>
               <div className="visual-scenes-header">
                 <div>
                   <h3>Visual Scenes ({visualScenes.length})</h3>
@@ -2171,10 +2211,12 @@ function App() {
                   ))}
                 </ul>
               )}
+              </>}
             </section>
+            }
 
 
-            <section className="video-export-section" id="guided-step-export">
+            {activeStage === "export" && <section className="video-export-section" id="guided-step-export">
               <h3>Video Export</h3>
 
               <p>
@@ -2266,8 +2308,26 @@ function App() {
                 </div>
               )}
 
-            </section>
+            </section>}
 
+            <div className="wizard-navigation" aria-label="Stage navigation">
+              <button
+                type="button"
+                className="secondary-button"
+                onClick={() => moveEditorStage(-1)}
+                disabled={activeStage === "narration"}
+              >
+                Back
+              </button>
+              <span>Stage {(["narration", "visuals", "audio", "export"] as const).indexOf(activeStage) + 1} of 4</span>
+              {activeStage !== "export" ? (
+                <button type="button" className="primary-button" onClick={() => moveEditorStage(1)}>
+                  Continue
+                </button>
+              ) : (
+                <span className="wizard-final-stage-note">Use Generate Video above when readiness checks pass.</span>
+              )}
+            </div>
             <button
               className="primary-button"
               onClick={() => setView("projects")}

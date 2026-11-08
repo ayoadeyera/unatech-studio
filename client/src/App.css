@@ -275,6 +275,132 @@ a {
   list-style: none;
 }
 
+.editor-progress {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 10px;
+  margin: 20px 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.editor-progress-item button {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  min-height: 64px;
+  padding: 10px 12px;
+  border: 1px solid #303b55;
+  border-radius: 9px;
+  background: #10182a;
+  color: #f5f7ff;
+  text-align: left;
+  cursor: pointer;
+}
+
+.editor-progress-item button[aria-current="step"] {
+  border-color: #8b5cf6;
+  box-shadow: 0 0 0 1px #8b5cf6;
+}
+
+.editor-progress-number {
+  display: grid;
+  place-items: center;
+  width: 30px;
+  height: 30px;
+  flex: 0 0 30px;
+  border-radius: 50%;
+  background: #334155;
+  color: #e2e8f0;
+  font-weight: 700;
+}
+
+.editor-progress-complete .editor-progress-number {
+  background: #14532d;
+  color: #bbf7d0;
+}
+
+.editor-progress-needs-attention .editor-progress-number {
+  background: #713f12;
+  color: #fde68a;
+}
+
+.editor-progress-copy {
+  display: grid;
+  min-width: 0;
+  gap: 3px;
+}
+
+.editor-progress-copy strong {
+  font-size: 14px;
+}
+
+.editor-progress-copy > span {
+  overflow: hidden;
+  color: #aeb8ce;
+  font-size: 12px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.editor-stage-title {
+  margin-top: 24px;
+  padding-bottom: 16px;
+  border-bottom: 1px solid #303b55;
+}
+
+.editor-stage-title > span,
+.wizard-navigation > span,
+.wizard-final-stage-note {
+  color: #aeb8ce;
+  font-size: 13px;
+}
+
+.editor-stage-title h3 {
+  margin: 6px 0;
+}
+
+.editor-stage-title p {
+  margin: 0;
+  color: #aeb8ce;
+  line-height: 1.45;
+}
+
+.wizard-navigation {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin: 20px 0;
+  padding-top: 16px;
+  border-top: 1px solid #303b55;
+}
+
+.wizard-navigation .primary-button,
+.wizard-navigation .secondary-button {
+  width: auto;
+  margin: 0;
+}
+
+.wizard-navigation .secondary-button {
+  padding: 12px 20px;
+  border: 1px solid #475569;
+  border-radius: 9px;
+  background: #1e293b;
+  color: #e2e8f0;
+  cursor: pointer;
+}
+
+.wizard-navigation .secondary-button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.wizard-final-stage-note {
+  text-align: right;
+}
+
 .guided-step {
   padding: 12px;
   border: 1px solid #303b55;
@@ -367,6 +493,19 @@ a {
   .export-readiness dl > div {
     grid-template-columns: 1fr;
     gap: 2px;
+  }
+
+  .editor-progress {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .editor-progress-item button {
+    min-height: 58px;
+    padding: 8px;
+  }
+
+  .wizard-navigation {
+    flex-wrap: wrap;
   }
 }
 

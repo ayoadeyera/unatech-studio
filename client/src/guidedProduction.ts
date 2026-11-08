@@ -6,6 +6,32 @@ export type GuidedStepId =
   | "music"
   | "export";
 
+export type GuidedStageId = "narration" | "visuals" | "audio" | "export";
+
+export const GUIDED_STAGES: readonly GuidedStageId[] = [
+  "narration",
+  "visuals",
+  "audio",
+  "export",
+];
+
+export function getProjectGuidedStage(project: {
+  guidedProduction?: { activeStage?: GuidedStageId; activeStep?: GuidedStepId };
+} | null | undefined): GuidedStageId {
+  const savedStage = project?.guidedProduction?.activeStage;
+  if (savedStage && GUIDED_STAGES.includes(savedStage)) return savedStage;
+
+  switch (project?.guidedProduction?.activeStep) {
+    case "visuals": return "visuals";
+    case "pauses":
+    case "music": return "audio";
+    case "export": return "export";
+    case "segments":
+    case "narration":
+    default: return "narration";
+  }
+}
+
 export interface GuidedProjectSnapshot {
   narration?: { filename?: string | null; originalName?: string | null } | null;
   narrationSegments?: Array<{ startTime: number; endTime: number; duration: number }>;
@@ -43,7 +69,7 @@ export type GuidedStepStatus = "complete" | "recommended" | "needs-attention";
 
 export interface GuidedProjectRecord {
   id: string;
-  guidedProduction?: { activeStep: GuidedStepId };
+  guidedProduction?: { activeStep?: GuidedStepId; activeStage?: GuidedStageId };
 }
 
 export function updateProjectGuidedStep<Project extends GuidedProjectRecord>(
@@ -57,6 +83,22 @@ export function updateProjectGuidedStep<Project extends GuidedProjectRecord>(
       guidedProduction: {
         ...(project.guidedProduction ?? { activeStep: "narration" as const }),
         activeStep,
+      },
+    }
+    : project);
+}
+
+export function updateProjectGuidedStage<Project extends GuidedProjectRecord>(
+  projects: Project[],
+  projectId: string,
+  activeStage: GuidedStageId,
+): Project[] {
+  return projects.map((project) => project.id === projectId
+    ? {
+      ...project,
+      guidedProduction: {
+        ...(project.guidedProduction ?? {}),
+        activeStage,
       },
     }
     : project);
