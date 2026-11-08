@@ -851,6 +851,35 @@ a {
   border-radius: 12px;
 }
 
+.automatic-preparation {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 18px;
+  margin-bottom: 20px;
+  padding: 16px;
+  background: #202a43;
+  border: 1px solid #7c6ad0;
+  border-radius: 10px;
+}
+
+.automatic-preparation h3 {
+  margin: 0 0 6px;
+  color: #ddd6fe;
+}
+
+.automatic-preparation p {
+  margin: 0;
+  color: #cbd5e1;
+}
+
+@media (max-width: 640px) {
+  .automatic-preparation {
+    align-items: stretch;
+    flex-direction: column;
+  }
+}
+
 .alignment-media-list,
 .alignment-preview-list {
   display: grid;

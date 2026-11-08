@@ -1,6 +1,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { appendNonOverlappingSegmentScenes, segmentCanBePlaced } from "./narrationSceneWorkflow";
+import { prepareScenesAutomatically } from "./automaticScenePreparation";
 import {
   createManualVisualAssignments,
   createSequentialVisualAssignments,
@@ -135,6 +136,7 @@ function App() {
   const [selectedAlignmentAssets, setSelectedAlignmentAssets] = useState<string[]>([]);
   const [manualAlignmentAssets, setManualAlignmentAssets] = useState<Record<string, string>>({});
   const [alignmentMessage, setAlignmentMessage] = useState("");
+  const [preparingScenes, setPreparingScenes] = useState(false);
 
   const [audioDuration, setAudioDuration] = useState<number | null>(null);
   const [narrationDurationStatus, setNarrationDurationStatus] = useState<"loading" | "ready" | "unavailable">("loading");
@@ -208,6 +210,7 @@ function App() {
   const teachingPauseTimerRef = useRef<number | null>(null);
   const isTeachingPauseActiveRef = useRef(false);
   const lastPreviewPositionRef = useRef(0);
+  const preparingScenesRef = useRef(false);
 
   useEffect(() => {
     if (!selectedProjectId) {
@@ -775,6 +778,76 @@ function App() {
     setSegmentationMessage(
       `${result.addedCount} new scene slot(s) appended; ${result.duplicateCount} existing slot(s) were kept and ${result.overlapCount} overlapping segment(s) were skipped. Existing media and manual edits were preserved. Upload media to new slots before export.`,
     );
+  }
+
+  async function prepareScenesAutomaticallyNow() {
+    if (preparingScenesRef.current || !selectedProjectId || !selectedProject) return;
+    preparingScenesRef.current = true;
+    setPreparingScenes(true);
+    setAlignmentMessage("");
+    try {
+      if (!selectedProject.narration?.filename) {
+        setAlignmentMessage("Upload narration in Stage 1 before preparing scenes.");
+        return;
+      }
+      if (visualLibraryMessage === "Loading project media…") {
+        setAlignmentMessage("Project visual uploads are still loading. Try again when the library is ready.");
+        return;
+      }
+      if (visualLibrary.length === 0 && visualLibraryMessage !== "No visual uploads in this project yet.") {
+        setAlignmentMessage(`Could not confirm the project visual library. ${visualLibraryMessage || "Refresh the library and try again."}`);
+        return;
+      }
+
+      let segments = selectedProject.narrationSegments ?? [];
+      if (segments.length === 0) {
+        setAlignmentMessage("No narration segments found. Detecting silence boundaries with FFmpeg…");
+        const data = await apiRequest<{ success: boolean; segments: Array<Omit<NarrationSegment, "id">>; message?: string }>(`/api/projects/${selectedProjectId}/narration/segments`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ audioFilename: selectedProject.narration.filename }),
+        });
+        if (!data.success || !Array.isArray(data.segments)) {
+          throw new Error(data.message || "FFmpeg could not return narration segments.");
+        }
+        segments = data.segments.map((segment) => ({ ...segment, id: crypto.randomUUID() }));
+      }
+      if (segments.length === 0) {
+        setAlignmentMessage("No narration activity segments were found. Review the narration or create segments manually in Stage 1.");
+        return;
+      }
+
+      const result = prepareScenesAutomatically(
+        segments,
+        selectedAlignmentAssets,
+        visualLibrary,
+        selectedProject.visualScenes ?? [],
+        (segmentId) => `scene-${segmentId}-${crypto.randomUUID()}`,
+      );
+      if (!result.changed && segments === (selectedProject.narrationSegments ?? [])) {
+        setAlignmentMessage(
+          `${result.createdCount} scene slots created · ${result.assignedCount} assets assigned · ${result.preservedCount} existing scenes preserved · ${result.skippedCount} assignments skipped. ${result.skippedCount > 0 ? "Existing media, timing and edits were kept; review segment timing or refresh/select available uploads." : "No changes were needed."}`,
+        );
+        return;
+      }
+      const updatedProjects = projects.map((project) => project.id === selectedProjectId
+        ? { ...project, narrationSegments: segments, visualScenes: result.scenes as VisualScene[] }
+        : project);
+      setProjects(updatedProjects);
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(updatedProjects));
+      const warnings = [
+        selectedAlignmentAssets.length === 0 ? "No assets selected; empty scene slots may remain." : "",
+        result.skippedCount > 0 ? "Some assignments were skipped because media was unavailable, timing conflicted, or scenes were already populated." : "",
+      ].filter(Boolean).join(" ");
+      setAlignmentMessage(
+        `${result.createdCount} scene slots created · ${result.assignedCount} assets assigned · ${result.preservedCount} existing scenes preserved · ${result.skippedCount} assignments skipped.${warnings ? ` ${warnings}` : " Review the scenes before export."}`,
+      );
+    } catch (error) {
+      setAlignmentMessage(error instanceof Error ? `Automatic preparation failed: ${error.message}` : "Automatic scene preparation failed. Check the narration and visual library, then try again.");
+    } finally {
+      preparingScenesRef.current = false;
+      setPreparingScenes(false);
+    }
   }
 
   function applyVisualAlignment(mode: "sequential" | "manual" = alignmentMode) {
@@ -1869,6 +1942,17 @@ function App() {
             {(activeStage === "visuals" || activeStage === "export") && <section className="visual-scenes-section">
               {activeStage === "visuals" && <>
               <div className="alignment-panel" id="guided-step-visuals">
+                <div className="automatic-preparation">
+                  <div>
+                    <h3>Prepare scenes automatically</h3>
+                    <p>Reuse existing narration segments, or detect silence boundaries with FFmpeg, then assign selected uploads in order. This does not transcribe narration or choose visuals by meaning.</p>
+                  </div>
+                  <button type="button" className="primary-button" onClick={() => void prepareScenesAutomaticallyNow()} disabled={preparingScenes || !selectedProject?.narration?.filename}>
+                    {preparingScenes ? "Preparing scenes…" : "Prepare Scenes Automatically"}
+                  </button>
+                </div>
+                {!selectedProject?.narration?.filename && <p className="alignment-message" role="status">Upload narration in Stage 1 to prepare scene slots. Visual uploads can be added here at any time.</p>}
+                {alignmentMessage && <p className="alignment-message" role="status">{alignmentMessage}</p>}
                 <div className="visual-scenes-header">
                   <div>
                     <h3>Project Visual Library</h3>

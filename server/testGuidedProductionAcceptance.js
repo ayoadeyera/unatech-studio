@@ -53,13 +53,7 @@ async function uploadFile(baseUrl, projectId, route, field, filename, mimeType) 
 }
 
 async function main() {
-  const {
-    appendNonOverlappingSegmentScenes,
-  } = await import("../client/src/narrationSceneWorkflow.ts");
-  const {
-    createSequentialVisualAssignments,
-    planVisualAlignment,
-  } = await import("../client/src/visualAlignment.ts");
+  const { prepareScenesAutomatically } = await import("../client/src/automaticScenePreparation.ts");
   const { updateProjectGuidedStep, validateGuidedExport } = await import("../client/src/guidedProduction.ts");
 
   const projectId = crypto.randomUUID();
@@ -122,23 +116,27 @@ async function main() {
       originalName: imageUpload.media.originalName,
       customEditorNote: "keep title, timing, and uploaded media",
     };
-    const appended = appendNonOverlappingSegmentScenes(segments, [manualScene], () => crypto.randomUUID());
-    assert.equal(appended.addedCount, 3, "narration segments append as empty non-overlapping scene slots");
-    assert.equal(appended.overlapCount, 0);
-
-    const assignments = createSequentialVisualAssignments(segments, [imageUpload.media.filename, videoUpload.media.filename, secondImageUpload.media.filename]);
-    const aligned = planVisualAlignment(
+    const prepared = prepareScenesAutomatically(
       segments,
-      assignments,
+      [libraryData.media.find((item) => item.filename === imageUpload.media.filename).id,
+        libraryData.media.find((item) => item.filename === videoUpload.media.filename).id,
+        libraryData.media.find((item) => item.filename === secondImageUpload.media.filename).id],
       libraryData.media,
-      appended.scenes,
-      (segmentId) => `aligned-${segmentId}`,
+      [manualScene],
+      (segmentId) => segmentId === "slot" ? `slot-${crypto.randomUUID()}` : `aligned-${segmentId}`,
     );
-    assert.equal(aligned.filledSlots.length, 3, "sequential visual mapping fills the three existing slots");
-    assert.equal(aligned.addedScenes.length, 0, "assignment does not create duplicate scene slots");
-    assert.deepEqual(aligned.scenes.find((scene) => scene.id === manualScene.id), manualScene, "manual scene fields and media remain unchanged");
-    const repeated = planVisualAlignment(segments, assignments, libraryData.media, aligned.scenes, () => crypto.randomUUID());
-    assert.equal(repeated.filledSlots.length + repeated.addedScenes.length, 0, "reapplying does not overwrite or duplicate scenes");
+    assert.equal(prepared.createdCount, 3, "automatic preparation creates three missing narration scene slots");
+    assert.equal(prepared.assignedCount, 3, "automatic preparation sequentially assigns the three selected uploads");
+    assert.equal(prepared.skippedCount, 0);
+    const alignedScenes = prepared.scenes;
+    assert.deepEqual(alignedScenes.find((scene) => scene.id === manualScene.id), manualScene, "manual scene fields and media remain unchanged");
+    const repeated = prepareScenesAutomatically(segments, [
+      libraryData.media.find((item) => item.filename === imageUpload.media.filename).id,
+      libraryData.media.find((item) => item.filename === videoUpload.media.filename).id,
+      libraryData.media.find((item) => item.filename === secondImageUpload.media.filename).id,
+    ], libraryData.media, JSON.parse(JSON.stringify(alignedScenes)), () => crypto.randomUUID());
+    assert.equal(repeated.changed, false, "reapplying after localStorage-style reopening makes no changes");
+    assert.deepEqual(repeated.scenes, alignedScenes, "repeated preparation preserves saved scene identities and media");
 
     const musicUpload = await uploadFile(baseUrl, projectId, "background-music", "music", assets.music, "audio/mpeg");
     const musicListResponse = await fetch(`${baseUrl}/api/projects/${projectId}/background-music`);
@@ -152,7 +150,7 @@ async function main() {
     const projectSnapshot = {
       narration,
       narrationSegments: segments,
-      visualScenes: aligned.scenes,
+      visualScenes: alignedScenes,
       teachingPauses,
       backgroundMusic: musicUpload.music,
       backgroundMusicSettings: { musicVolume: 0.24, narrationDuckingLevel: 0.12, teachingPauseMusicLevel: 0.62 },
@@ -165,7 +163,7 @@ async function main() {
     const reopenedProjectRecords = JSON.parse(JSON.stringify(savedProjectRecords));
     assert.equal(reopenedProjectRecords[0].guidedProduction.activeStep, "export", "active step persists after localStorage-style project reopen");
     assert.equal(reopenedProjectRecords[1].guidedProduction.activeStep, "narration", "workflow progress stays project-scoped");
-    assert.deepEqual(reopenedProjectRecords[0].visualScenes, aligned.scenes, "reopening preserves assigned and manual scenes");
+    assert.deepEqual(reopenedProjectRecords[0].visualScenes, alignedScenes, "reopening preserves assigned and manual scenes");
     assert.deepEqual(reopenedProjectRecords[0].teachingPauses, teachingPauses, "reopening preserves teaching pauses");
     assert.equal(reopenedProjectRecords[0].backgroundMusic.filename, musicUpload.music.filename, "reopening preserves project music selection");
     const readiness = validateGuidedExport(projectSnapshot, segmentData.duration, {
@@ -181,7 +179,7 @@ async function main() {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         audioFilename: narration.filename,
-        scenes: aligned.scenes,
+        scenes: alignedScenes,
         teachingPauses,
         backgroundMusicFilename: musicUpload.music.filename,
         backgroundMusicSettings: projectSnapshot.backgroundMusicSettings,
