@@ -49,6 +49,50 @@ async function main() {
   assert.equal(unavailable.skippedCount, 3);
   assert(unavailable.scenes.every((scene) => scene.mediaUrl === null), "missing uploads are never fabricated or overwritten");
 
+  const manySegments = Array.from({ length: 68 }, (_, index) => ({
+    id: `long-seg-${index}`,
+    startTime: index * 3,
+    endTime: index * 3 + 3.1,
+    duration: 3.1,
+  }));
+  const productionAssets = Array.from({ length: 12 }, (_, index) => ({
+    id: `production-asset-${index}`,
+    filename: `production-${index}.png`,
+    originalName: `production-${index}.png`,
+    url: `/production-${index}.png`,
+    size: 100,
+    mediaType: "image",
+  }));
+  const productionBuild = prepareScenesAutomatically(
+    manySegments,
+    productionAssets.map((asset) => asset.id),
+    productionAssets,
+    [],
+    idFactory,
+  );
+  assert.equal(productionBuild.scenes.length, 12, "a fresh multi-minute build groups many activity ranges to the available visual count");
+  assert.equal(productionBuild.scenes.filter((scene) => scene.mediaUrl).length, 12, "all selected assets cover the grouped narration timeline");
+  assert(productionBuild.scenes.every((scene) => scene.duration > 0), "grouped scene durations remain positive");
+  for (let index = 1; index < productionBuild.scenes.length; index += 1) {
+    const previous = productionBuild.scenes[index - 1];
+    assert(previous.startTime + previous.duration <= productionBuild.scenes[index].startTime + 0.001, "grouped scenes do not overlap");
+  }
+  assert.equal(productionBuild.scenes[0].startTime, manySegments[0].startTime);
+  assert(
+    Math.abs(productionBuild.scenes.at(-1).startTime + productionBuild.scenes.at(-1).duration - manySegments.at(-1).endTime) < 0.001,
+    "grouped visual scenes reach the end of detected narration activity",
+  );
+  const productionReopened = JSON.parse(JSON.stringify(productionBuild.scenes));
+  const productionRepeat = prepareScenesAutomatically(
+    manySegments,
+    productionAssets.map((asset) => asset.id),
+    productionAssets,
+    productionReopened,
+    idFactory,
+  );
+  assert.equal(productionRepeat.changed, false, "grouped multi-minute preparation remains idempotent after project reopening");
+  assert.deepEqual(productionRepeat.scenes, productionReopened, "repeat preparation preserves grouped scenes and media");
+
   const overlap = { id: "overlap", title: "Manual blocker", startTime: 0.5, duration: 0.5, mediaType: "image", mediaUrl: "/keep.png", originalName: "keep.png" };
   const rejected = prepareScenesAutomatically(segments.slice(0, 1), ["img-a"], assets, [overlap], idFactory);
   assert.equal(rejected.createdCount, 0, "overlapping scene prevents automatic slot creation");
